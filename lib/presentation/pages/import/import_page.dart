@@ -5,7 +5,8 @@ import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
 import 'package:provider/provider.dart';
 
 class ImportPage extends StatelessWidget {
-  const ImportPage({super.key});
+  final VoidCallback? onImportSuccess;
+  const ImportPage({super.key, this.onImportSuccess});
 
   @override
   Widget build(BuildContext context) {
@@ -160,7 +161,14 @@ class ImportPage extends StatelessWidget {
                 // Import Button
                 if (provider.kupons.isNotEmpty)
                   ElevatedButton.icon(
-                    onPressed: provider.isLoading ? null : provider.startImport,
+                    onPressed: provider.isLoading
+                        ? null
+                        : () async {
+                            final success = await provider.startImport();
+                            if (success == true && onImportSuccess != null) {
+                              onImportSuccess!();
+                            }
+                          },
                     icon: const Icon(Icons.file_upload_outlined),
                     label: Text(
                       provider.isLoading

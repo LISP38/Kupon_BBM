@@ -134,6 +134,7 @@ class ImportProvider extends ChangeNotifier {
 
     for (var kendaraan in _newKendaraans) {
       try {
+        print('[MAPPING] Proses kendaraan: noPolKode=${kendaraan.noPolKode}, noPolNomor=${kendaraan.noPolNomor}');
         // Cek apakah kendaraan sudah ada
         final existing = await _kendaraanRepository.findKendaraanByNoPol(
           kendaraan.noPolKode,
@@ -141,11 +142,11 @@ class ImportProvider extends ChangeNotifier {
         );
 
         if (existing != null) {
-          // Gunakan ID kendaraan yang sudah ada
+          print('[MAPPING] Ditemukan kendaraan existing, id=${existing.kendaraanId}');
           kendaraanIdMap['${kendaraan.noPolKode}${kendaraan.noPolNomor}'] =
               existing.kendaraanId;
         } else {
-          // Buat kendaraan baru
+          print('[MAPPING] Insert kendaraan baru');
           await _kendaraanRepository.insertKendaraan(kendaraan);
           // Cek kembali untuk mendapatkan ID yang baru dibuat
           final created = await _kendaraanRepository.findKendaraanByNoPol(
@@ -153,39 +154,44 @@ class ImportProvider extends ChangeNotifier {
             kendaraan.noPolNomor,
           );
           if (created != null) {
+            print('[MAPPING] Berhasil insert kendaraan baru, id=${created.kendaraanId}');
             kendaraanIdMap['${kendaraan.noPolKode}${kendaraan.noPolNomor}'] =
                 created.kendaraanId;
+          } else {
+            print('[MAPPING][ERROR] Gagal mendapatkan ID kendaraan setelah insert!');
           }
         }
       } catch (e) {
+        print('[MAPPING][ERROR] Error saat membuat kendaraan ${kendaraan.noPolKode} ${kendaraan.noPolNomor}: $e');
         _validationMessages.add(
           'Error saat membuat kendaraan ${kendaraan.noPolKode} ${kendaraan.noPolNomor}: $e',
         );
       }
     }
 
+    print('[MAPPING] Hasil mapping kendaraanIdMap: $kendaraanIdMap');
     return kendaraanIdMap;
   }
 
   // Aksi untuk memulai import
-  Future<void> startImport() async {
+  Future<bool> startImport() async {
     if (_filePath == null) {
       _statusMessage = 'Silakan pilih file terlebih dahulu.';
       notifyListeners();
-      return;
+      return false;
     }
 
     if (_kupons.isEmpty) {
       _statusMessage = 'Tidak ada data valid untuk di-import.';
       notifyListeners();
-      return;
+      return false;
     }
 
     _isLoading = true;
     _statusMessage = 'Memulai proses import...';
     notifyListeners();
 
-    try {
+  try {
       // 1. Proses kendaraan baru
       _statusMessage = 'Memproses data kendaraan...';
       notifyListeners();
@@ -215,19 +221,27 @@ class ImportProvider extends ChangeNotifier {
       _statusMessage = 'Mengimport kupon...';
       notifyListeners();
 
+      int inserted = 0;
       for (var kupon in _kupons) {
+        print('[IMPORT] Akan insert kupon: nomorKupon=${kupon.nomorKupon}, kendaraanId=${kupon.kendaraanId}');
         if (kupon.kendaraanId > 0) {
           await _kuponRepository.insertKupon(kupon);
+          inserted++;
+        } else {
+          print('[IMPORT][SKIP] Kupon ${kupon.nomorKupon} tidak punya kendaraanId valid!');
         }
       }
 
-      _statusMessage = 'Import ${_kupons.length} kupon selesai!';
+      print('[IMPORT] Total kupon berhasil di-insert: $inserted dari ${_kupons.length}');
+      _statusMessage = 'Import $inserted kupon selesai!';
       if (_validationMessages.isNotEmpty) {
         _statusMessage +=
             '\nTerdapat ${_validationMessages.length} peringatan.';
       }
+      return true;
     } catch (e) {
       _statusMessage = 'Error saat import: $e';
+      return false;
     } finally {
       _isLoading = false;
       _filePath = null; // Reset setelah selesai

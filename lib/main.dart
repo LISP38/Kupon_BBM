@@ -7,6 +7,7 @@ import 'package:kupon_bbm_app/data/datasources/excel_datasource.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository.dart';
 import 'package:kupon_bbm_app/presentation/pages/main_page.dart';
+import 'package:kupon_bbm_app/presentation/providers/dashboard_provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -29,6 +30,9 @@ void main() async {
             getIt<KuponRepository>(),
             getIt<KendaraanRepository>(),
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => DashboardProvider(getIt<KuponRepository>()),
         ),
         // Daftarkan provider lain di sini nanti
       ],

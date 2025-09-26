@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:kupon_bbm_app/presentation/pages/dashboard/dashboard_page.dart';
 import 'package:kupon_bbm_app/presentation/pages/import/import_page.dart';
 import 'package:kupon_bbm_app/presentation/pages/transaction/transaction_page.dart';
+import 'package:provider/provider.dart';
+import 'package:kupon_bbm_app/presentation/providers/dashboard_provider.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -10,15 +12,35 @@ class MainPage extends StatefulWidget {
   State<MainPage> createState() => _MainPageState();
 }
 
+
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
 
-  // Daftar halaman sesuai urutan menu
-  final List<Widget> _pages = [
-    const ImportPage(),
-    const DashboardPage(),
-    const TransactionPage(),
-  ];
+  // Keep a key for the dashboard to access its context/provider
+  final GlobalKey _dashboardKey = GlobalKey();
+
+  Widget _buildPage(int index) {
+    if (index == 0) {
+      // ImportPage with callback to refresh dashboard
+      return ImportPage(
+        onImportSuccess: () {
+          // Find DashboardProvider and refresh
+          if (_dashboardKey.currentContext != null) {
+            final provider = Provider.of<DashboardProvider>(
+              _dashboardKey.currentContext!,
+              listen: false,
+            );
+            provider.fetchKupons();
+          }
+        },
+      );
+    } else if (index == 1) {
+      // DashboardPage with key
+      return DashboardPage(key: _dashboardKey);
+    } else {
+      return const TransactionPage();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +76,7 @@ class _MainPageState extends State<MainPage> {
           const VerticalDivider(thickness: 1, width: 1),
           // Halaman konten akan ditampilkan di sini
           Expanded(
-            child: _pages[_selectedIndex],
+            child: _buildPage(_selectedIndex),
           ),
         ],
       ),

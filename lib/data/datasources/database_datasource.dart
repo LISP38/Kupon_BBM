@@ -27,14 +27,18 @@ class DatabaseDatasource {
     final path = join(dbDir.path, filePath);
     final dbFactory = databaseFactoryFfi;
 
+    print('DEBUG: Opening database at path: ' + path);
+
     return await dbFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
         version: 1,
         onConfigure: (db) async {
+          print('DEBUG: onConfigure called');
           await db.execute('PRAGMA foreign_keys = ON;');
         },
         onCreate: (db, version) async {
+          print('DEBUG: onCreate called, creating tables...');
           await _createDB(db, version);
         },
       ),
@@ -42,21 +46,21 @@ class DatabaseDatasource {
   }
 
   Future<void> _createDB(Database db, int version) async {
+    print('DEBUG: _createDB called');
     final batch = db.batch();
 
     // ---- Dimension tables ----
-    // Insert default data first to avoid foreign key issues
-    batch.execute('''
-      INSERT OR IGNORE INTO dim_satker (satker_id, nama_satker)
-      VALUES (1, 'Default');
-    ''');
+    // CREATE TABLE dulu, baru INSERT default data
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_satker (
         satker_id INTEGER PRIMARY KEY,
         nama_satker TEXT NOT NULL
       );
     ''');
-
+    batch.execute('''
+      INSERT OR IGNORE INTO dim_satker (satker_id, nama_satker)
+      VALUES (1, 'Default');
+    ''');
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_jenis_bbm (
         jenis_bbm_id INTEGER PRIMARY KEY,
@@ -73,7 +77,7 @@ class DatabaseDatasource {
 
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_kendaraan (
-        kendaraan_id INTEGER PRIMARY KEY,
+        kendaraan_id INTEGER PRIMARY KEY AUTOINCREMENT,
         satker_id INTEGER NOT NULL,
         jenis_ranmor TEXT NOT NULL,
         no_pol_kode TEXT NOT NULL,
@@ -139,10 +143,13 @@ class DatabaseDatasource {
     );
 
     await batch.commit(noResult: true);
+    print('DEBUG: Tables created, seeding master data...');
     await _seedMasterData(db);
+    print('DEBUG: Master data seeded.');
   }
 
   Future<void> _seedMasterData(Database db) async {
+    print('DEBUG: _seedMasterData called');
     await db.transaction((txn) async {
       // dim_jenis_bbm
       await txn.insert('dim_jenis_bbm', {
@@ -209,6 +216,7 @@ class DatabaseDatasource {
         }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
     });
+    print('DEBUG: _seedMasterData finished');
   }
 
   Future<void> close() async {

@@ -12,8 +12,11 @@ class KuponRepositoryImpl implements KuponRepository {
   @override
   Future<List<KuponEntity>> getAllKupon() async {
     final db = await dbHelper.database;
-    final result = await db.query('fact_kupon');
-
+    final result = await db.query(
+      'fact_kupon',
+      where: 'is_deleted = ?',
+      whereArgs: [0],
+    );
     return result.map((map) => KuponModel.fromMap(map)).toList();
   }
 

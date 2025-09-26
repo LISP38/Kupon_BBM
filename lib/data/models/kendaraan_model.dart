@@ -24,8 +24,7 @@ class KendaraanModel extends KendaraanEntity {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'kendaraan_id': kendaraanId,
+    final map = <String, dynamic>{
       'satker_id': satkerId,
       'jenis_ranmor': jenisRanmor,
       'no_pol_kode': noPolKode,
@@ -33,5 +32,10 @@ class KendaraanModel extends KendaraanEntity {
       'status_aktif': statusAktif,
       'created_at': createdAt,
     };
+    // Hanya sertakan kendaraan_id jika > 0 (untuk update, bukan insert baru)
+    if (kendaraanId > 0) {
+      map['kendaraan_id'] = kendaraanId;
+    }
+    return map;
   }
 }

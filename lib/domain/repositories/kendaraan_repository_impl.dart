@@ -31,9 +31,9 @@ class KendaraanRepositoryImpl implements KendaraanRepository {
   }
 
   @override
-  Future<void> insertKendaraan(KendaraanEntity kendaraan) async {
+  Future<int> insertKendaraan(KendaraanEntity kendaraan) async {
     final db = await dbHelper.database;
-    await db.insert(
+    return await db.insert(
       'dim_kendaraan',
       (kendaraan as KendaraanModel).toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
