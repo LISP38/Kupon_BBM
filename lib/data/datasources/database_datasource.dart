@@ -32,7 +32,7 @@ class DatabaseDatasource {
     return await dbFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onConfigure: (db) async {
           print('DEBUG: onConfigure called');
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -40,6 +40,41 @@ class DatabaseDatasource {
         onCreate: (db, version) async {
           print('DEBUG: onCreate called, creating tables...');
           await _createDB(db, version);
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          print('DEBUG: onUpgrade called from $oldVersion to $newVersion');
+          if (oldVersion < 2) {
+            // Remove UNIQUE constraint from nomor_kupon
+            await db.execute('CREATE TABLE fact_kupon_temp AS SELECT * FROM fact_kupon');
+            await db.execute('DROP TABLE fact_kupon');
+            await db.execute('''
+              CREATE TABLE fact_kupon (
+                kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nomor_kupon TEXT NOT NULL,
+                kendaraan_id INTEGER NOT NULL,
+                jenis_bbm_id INTEGER NOT NULL,
+                jenis_kupon_id INTEGER NOT NULL,
+                bulan_terbit INTEGER NOT NULL,
+                tahun_terbit INTEGER NOT NULL,
+                tanggal_mulai TEXT NOT NULL,
+                tanggal_sampai TEXT NOT NULL,
+                kuota_awal REAL NOT NULL,
+                kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
+                nama_satker TEXT NOT NULL,
+                status TEXT DEFAULT 'Aktif',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER DEFAULT 0,
+                FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id)
+                  ON DELETE CASCADE ON UPDATE CASCADE,
+                FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),
+                FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id)
+              );
+            ''');
+            await db.execute('INSERT INTO fact_kupon SELECT * FROM fact_kupon_temp');
+            await db.execute('DROP TABLE fact_kupon_temp');
+            print('DEBUG: UNIQUE constraint removed from nomor_kupon');
+          }
         },
       ),
     );
@@ -94,7 +129,7 @@ class DatabaseDatasource {
     batch.execute('''
       CREATE TABLE IF NOT EXISTS fact_kupon (
   kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nomor_kupon TEXT UNIQUE NOT NULL,
+  nomor_kupon TEXT NOT NULL,
   kendaraan_id INTEGER NOT NULL,
   jenis_bbm_id INTEGER NOT NULL,
   jenis_kupon_id INTEGER NOT NULL,
@@ -109,7 +144,7 @@ class DatabaseDatasource {
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   is_deleted INTEGER DEFAULT 0,
-        FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id) 
+        FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id)
           ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),
         FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id)

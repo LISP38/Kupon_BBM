@@ -42,10 +42,11 @@ class ExcelDatasource {
     return romanValues[roman.trim().toUpperCase()];
   }
 
-  Future<ExcelParseResult> parseExcelFile(
-    String filePath, [
-    List<KuponModel> existingKupons = const [],
-  ]) async {
+Future<ExcelParseResult> parseExcelFile(
+  String filePath,
+  List<KuponModel> existingKupons, {
+  bool allowReplace = false,
+}) async {
     final bytes = File(filePath).readAsBytesSync();
     final excel = Excel.decodeBytes(bytes);
 
@@ -71,26 +72,29 @@ class ExcelDatasource {
         if (data != null) {
           final (kupon, kendaraan) = data;
 
-          if (kendaraan != null) {
-            // Validasi business rules
-            final validationResult = _kuponValidator.validateKupon(
-              existingKupons,
-              kupon,
-              '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
-            );
-
-            if (!validationResult.isValid) {
-              validationMessages.addAll(
-                validationResult.messages.map(
-                  (msg) => 'Baris ${sheet.rows.indexOf(row) + 1}: $msg',
-                ),
+            if (kendaraan != null) {
+              // Validasi business rules
+              final validationResult = await _kuponValidator.validateKupon(
+                existingKupons,
+                kupon,
+                '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
+                allowReplace: allowReplace,
               );
-              continue; // Skip row ini jika tidak valid
-            }
 
-            kupons.add(kupon);
-            newKendaraans.add(kendaraan);
-          }
+              if (!validationResult.isValid) {
+                validationMessages.addAll(
+                  validationResult.messages.map(
+                    (msg) => 'Baris ${sheet.rows.indexOf(row) + 1}: $msg',
+                  ),
+                );
+                if (!allowReplace) {
+                  continue; // Skip row ini jika tidak valid dan bukan replace mode
+                }
+              }
+
+              kupons.add(kupon);
+              newKendaraans.add(kendaraan);
+            }
         }
       } catch (e) {
         validationMessages.add(

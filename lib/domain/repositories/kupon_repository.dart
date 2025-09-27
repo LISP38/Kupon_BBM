@@ -6,4 +6,6 @@ abstract class KuponRepository {
   Future<void> insertKupon(KuponEntity kupon);
   Future<void> updateKupon(KuponEntity kupon);
   Future<void> deleteKupon(int kuponId);
+  Future<KuponEntity?> getKuponByNomorKupon(String nomorKupon);
+  Future<void> deleteAllKupon();
 }

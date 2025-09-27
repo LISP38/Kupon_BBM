@@ -94,6 +94,25 @@ class ImportPage extends StatelessWidget {
                     'Preview Data (${provider.kupons.length} kupon):',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
+                  if (provider.replaceMode) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        border: Border.all(color: Colors.blue.shade200),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'Mode replace aktif: Data existing akan diganti berdasarkan nomor kupon.',
+                        style: TextStyle(
+                          color: Colors.blue,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Expanded(
                     child: Container(
@@ -158,13 +177,32 @@ class ImportPage extends StatelessWidget {
 
                 const SizedBox(height: 24),
 
+                // Replace Checkbox
+                if (provider.kupons.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  CheckboxListTile(
+                    title: const Text('Ganti data yang sudah ada (Replace)'),
+                    subtitle: const Text(
+                      'Data kupon existing akan diganti berdasarkan nomor kupon.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    value: provider.replaceMode,
+                    onChanged: provider.isLoading
+                        ? null
+                        : (bool? value) {
+                            provider.setReplaceMode(value ?? false);
+                          },
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                ],
+
                 // Import Button
                 if (provider.kupons.isNotEmpty)
                   ElevatedButton.icon(
                     onPressed: provider.isLoading
                         ? null
                         : () async {
-                            final success = await provider.startImport();
+                            final success = await provider.startImport(replaceMode: provider.replaceMode);
                             if (success == true && onImportSuccess != null) {
                               onImportSuccess!();
                             }
@@ -173,7 +211,7 @@ class ImportPage extends StatelessWidget {
                     label: Text(
                       provider.isLoading
                           ? 'Mengimport...'
-                          : 'Import ${provider.kupons.length} Kupon',
+                          : 'Import ${provider.kupons.length} Kupon ${provider.replaceMode ? '(Replace)' : ''}',
                     ),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),

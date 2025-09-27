@@ -27,6 +27,7 @@ class ImportProvider extends ChangeNotifier {
   List<String> _validationMessages = [];
   List<KuponModel> _kupons = [];
   List<KendaraanModel> _newKendaraans = [];
+  bool _replaceMode = false;
 
   // Getters (public) - UI akan mengakses ini
   String get fileName => _fileName;
@@ -36,6 +37,13 @@ class ImportProvider extends ChangeNotifier {
   List<String> get validationMessages => _validationMessages;
   List<KuponModel> get kupons => _kupons;
   List<KendaraanModel> get newKendaraans => _newKendaraans;
+
+  bool get replaceMode => _replaceMode;
+
+  void setReplaceMode(bool value) {
+    _replaceMode = value;
+    notifyListeners();
+  }
 
   String getNoPolById(int index) {
     // Gunakan index untuk mendapatkan kendaraan yang sesuai dengan kupon
@@ -85,9 +93,13 @@ class ImportProvider extends ChangeNotifier {
 
   // Method private untuk parsing Excel
   Future<void> _parseExcelFile() async {
+    await _parseExcelFileInternal(false);
+  }
+
+  Future<void> _parseExcelFileInternal(bool allowReplace) async {
     if (_filePath == null) return;
 
-    _statusMessage = 'Membaca file Excel...';
+    _statusMessage = allowReplace ? 'Re-parsing untuk mode replace...' : 'Membaca file Excel...';
     notifyListeners();
 
     try {
@@ -103,6 +115,7 @@ class ImportProvider extends ChangeNotifier {
       final result = await _excelDatasource.parseExcelFile(
         _filePath!,
         existingKupons.map((e) => e as KuponModel).toList(),
+        allowReplace: allowReplace,
       );
 
       _kupons = result.kupons;
@@ -174,24 +187,35 @@ class ImportProvider extends ChangeNotifier {
   }
 
   // Aksi untuk memulai import
-  Future<bool> startImport() async {
+  Future<bool> startImport({bool? replaceMode}) async {
+    final bool useReplace = replaceMode ?? _replaceMode;
+
     if (_filePath == null) {
       _statusMessage = 'Silakan pilih file terlebih dahulu.';
       notifyListeners();
       return false;
     }
 
-    if (_kupons.isEmpty) {
+    if (_kupons.isEmpty && !useReplace) {
       _statusMessage = 'Tidak ada data valid untuk di-import.';
       notifyListeners();
       return false;
     }
 
     _isLoading = true;
-    _statusMessage = 'Memulai proses import...';
+    _statusMessage = useReplace ? 'Memulai proses import dengan replace...' : 'Memulai proses import...';
     notifyListeners();
 
-  try {
+    try {
+      // If replace mode, re-parse with allowReplace=true to include all
+      if (useReplace) {
+        await _parseExcelFileInternal(true);
+        if (_kupons.isEmpty) {
+          _statusMessage = 'Tidak ada data untuk di-import bahkan dengan mode replace.';
+          return false;
+        }
+      }
+
       // 1. Proses kendaraan baru
       _statusMessage = 'Memproses data kendaraan...';
       notifyListeners();
@@ -217,23 +241,33 @@ class ImportProvider extends ChangeNotifier {
         }
       }
 
-      // 3. Import kupon
+      // 3. Import/Replace kupon
       _statusMessage = 'Mengimport kupon...';
       notifyListeners();
 
-      int inserted = 0;
-      for (var kupon in _kupons) {
-        print('[IMPORT] Akan insert kupon: nomorKupon=${kupon.nomorKupon}, kendaraanId=${kupon.kendaraanId}');
-        if (kupon.kendaraanId > 0) {
-          await _kuponRepository.insertKupon(kupon);
-          inserted++;
-        } else {
-          print('[IMPORT][SKIP] Kupon ${kupon.nomorKupon} tidak punya kendaraanId valid!');
-        }
+      if (useReplace) {
+        // Delete all existing kupons for replace mode
+        await _kuponRepository.deleteAllKupon();
+        print('[REPLACE] Deleted all existing kupons');
       }
 
-      print('[IMPORT] Total kupon berhasil di-insert: $inserted dari ${_kupons.length}');
-      _statusMessage = 'Import $inserted kupon selesai!';
+      int inserted = 0;
+      for (var kupon in _kupons) {
+        print('[IMPORT] Processing kupon: nomorKupon=${kupon.nomorKupon}, kendaraanId=${kupon.kendaraanId}');
+        if (kupon.kendaraanId <= 0) {
+          print('[IMPORT][SKIP] Kupon ${kupon.nomorKupon} tidak punya kendaraanId valid!');
+          continue;
+        }
+
+        await _kuponRepository.insertKupon(kupon);
+        inserted++;
+        print('[IMPORT] Inserted kupon: ${kupon.nomorKupon}');
+      }
+
+      print('[IMPORT] Total: $inserted baru dari ${_kupons.length}');
+      _statusMessage = useReplace
+          ? 'Replace selesai: $inserted kupon berhasil di-import!'
+          : 'Import selesai: $inserted kupon berhasil di-import!';
       if (_validationMessages.isNotEmpty) {
         _statusMessage +=
             '\nTerdapat ${_validationMessages.length} peringatan.';
