@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/dashboard_provider.dart';
+import '../../providers/transaksi_provider.dart';
 import '../../../core/di/dependency_injection.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import '../../../domain/entities/kendaraan_entity.dart';
-import 'package:kupon_bbm_app/data/models/kendaraan_model.dart';
+import '../../../domain/entities/kendaraan_entity.dart'; // This line is used
+import '../../../domain/entities/kupon_entity.dart';
+import 'package:kupon_bbm_app/data/models/kendaraan_model.dart'; // This line is used
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({Key? key}) : super(key: key);
+  const DashboardPage({super.key});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -58,16 +60,10 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _selectedSatker;
   String? _selectedJenisBBM;
   String? _selectedJenisKupon;
+  String? _selectedJenisRanmor;
   int? _selectedBulan;
   int? _selectedTahun;
 
-  final Map<int, String> _satkerMap = {
-    1: 'KAPOLDA',
-    2: 'WAKAPOLDA',
-    3: 'IRWASDA',
-    4: 'SATKER LAIN'
-    // ...lengkapi sesuai master data
-  };
   final Map<int, String> _jenisBBMMap = {1: 'Pertamax', 2: 'Pertamina Dex'};
   final Map<int, String> _jenisKuponMap = {1: 'Ranjen', 2: 'Dukungan'};
 
@@ -80,6 +76,13 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _fetchKendaraanList();
+    _fetchSatkerList();
+  }
+
+  Future<void> _fetchSatkerList() async {
+  // final repo = getIt<MasterDataRepository>();
+  // _satkerList = await repo.getAllSatker();
+  // setState(() {});
   }
 
   Future<void> _fetchKendaraanList() async {
@@ -105,52 +108,58 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => DashboardProvider(getIt.get()),
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Dashboard Kupon'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.upload_file),
-              tooltip: 'Import Data',
-              onPressed: () async {
-                await Navigator.pushNamed(context, '/import');
-                // Setelah kembali dari import, refresh data
-                if (mounted) {
-                  Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
-                }
-              },
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard Kupon'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            tooltip: 'Import Data',
+                      onPressed: () async {
+              await Navigator.pushNamed(context, '/import');
+              // Setelah kembali dari import, refresh data
+              if (mounted) {
+                Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
+              }
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummarySection(context),
+            _buildFilterSection(context),
+            const SizedBox(height: 16),
+            Expanded(child: _buildMasterKuponTable(context)),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  await _exportToExcel(context);
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Export Data'),
+              ),
             ),
           ],
-        ),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSummarySection(context),
-              _buildFilterSection(context),
-              const SizedBox(height: 16),
-              Expanded(child: _buildMasterKuponTable(context)),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    await _exportToExcel(context);
-                  },
-                  icon: const Icon(Icons.download),
-                  label: const Text('Export Data'),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 
   Widget _buildFilterSection(BuildContext context) {
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedJenisRanmor,
+                    items: _kendaraanList.map((k) => k.jenisRanmor).toSet().map((jenis) => DropdownMenuItem(value: jenis, child: Text(jenis))).toList(),
+                    onChanged: (val) => setState(() => _selectedJenisRanmor = val),
+                    decoration: const InputDecoration(labelText: 'Jenis Ranmor', border: OutlineInputBorder()),
+                  ),
+                );
     final provider = Provider.of<DashboardProvider>(context, listen: false);
     return Card(
       child: Padding(
@@ -175,8 +184,15 @@ class _DashboardPageState extends State<DashboardPage> {
                 SizedBox(
                   width: 180,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedSatker,
-                    items: _satkerMap.entries.map((e) => DropdownMenuItem(value: e.value, child: Text(e.value))).toList(),
+                    initialValue: _selectedSatker,
+                    items: Provider.of<DashboardProvider>(context, listen: false).kupons
+                        .map((k) => k.namaSatker)
+                        .toSet()
+                        .map((namaSatker) => DropdownMenuItem(
+                              value: namaSatker,
+                              child: Text(namaSatker),
+                            ))
+                        .toList(),
                     onChanged: (val) => setState(() => _selectedSatker = val),
                     decoration: const InputDecoration(labelText: 'Satker', border: OutlineInputBorder()),
                   ),
@@ -184,7 +200,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 SizedBox(
                   width: 180,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedJenisBBM,
+                    initialValue: _selectedJenisBBM,
                     items: _jenisBBMMap.entries.map((e) => DropdownMenuItem(value: e.value, child: Text(e.value))).toList(),
                     onChanged: (val) => setState(() => _selectedJenisBBM = val),
                     decoration: const InputDecoration(labelText: 'Jenis BBM', border: OutlineInputBorder()),
@@ -193,7 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 SizedBox(
                   width: 180,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedJenisKupon,
+                    initialValue: _selectedJenisKupon,
                     items: _jenisKuponMap.entries.map((e) => DropdownMenuItem(value: e.value, child: Text(e.value))).toList(),
                     onChanged: (val) => setState(() => _selectedJenisKupon = val),
                     decoration: const InputDecoration(labelText: 'Jenis Kupon', border: OutlineInputBorder()),
@@ -212,7 +228,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 SizedBox(
                   width: 120,
                   child: DropdownButtonFormField<int>(
-                    value: _selectedBulan,
+                    initialValue: _selectedBulan,
                     items: _bulanList.map((e) => DropdownMenuItem(value: e, child: Text(e.toString()))).toList(),
                     onChanged: (val) => setState(() => _selectedBulan = val),
                     decoration: const InputDecoration(labelText: 'Bulan', border: OutlineInputBorder()),
@@ -221,7 +237,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 SizedBox(
                   width: 120,
                   child: DropdownButtonFormField<int>(
-                    value: _selectedTahun,
+                    initialValue: _selectedTahun,
                     items: _tahunList.map((e) => DropdownMenuItem(value: e, child: Text(e.toString()))).toList(),
                     onChanged: (val) => setState(() => _selectedTahun = val),
                     decoration: const InputDecoration(labelText: 'Tahun', border: OutlineInputBorder()),
@@ -273,6 +289,62 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildMasterKuponTable(BuildContext context) {
+
+  Future<void> _showKuponDetailDialog(BuildContext context, KuponEntity k, KendaraanEntity kendaraan) async {
+    final transaksiProvider = Provider.of<TransaksiProvider>(context, listen: false);
+    await transaksiProvider.fetchTransaksiFiltered();
+    final transaksiList = transaksiProvider.transaksiList.where((t) => t.kuponId == k.kuponId).toList();
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('Detail Kupon'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Nomor Kupon: ${k.nomorKupon}'),
+                Text('Jenis Kupon: ${_jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId}'),
+                Text('Jenis BBM: ${_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId}'),
+                Text('Kuota Awal: ${k.kuotaAwal}'),
+                Text('Kuota Sisa: ${k.kuotaSisa}'),
+                Text('Periode: ${k.bulanTerbit}/${k.tahunTerbit}'),
+                Text('Status: ${k.status}'),
+                const Divider(),
+                Text('Kendaraan:'),
+                Text('ID: ${kendaraan.kendaraanId}'),
+                Text('Satker: ${k.namaSatker}'),
+                Text('Jenis: ${kendaraan.jenisRanmor}'),
+                Text('NoPol: ${kendaraan.noPolNomor}-${kendaraan.noPolKode}'),
+                const Divider(),
+                Text('Riwayat Transaksi:', style: TextStyle(fontWeight: FontWeight.bold)),
+                transaksiList.isEmpty
+                    ? Text('Belum ada transaksi')
+                    : Column(
+                        children: transaksiList.map((t) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${t.tanggalTransaksi}'),
+                              Text('${t.jumlahDiambil} liter'),
+                            ],
+                          ),
+                        )).toList(),
+                      ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Tutup'),
+            ),
+          ],
+        );
+      },
+    );
+  }
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
         final kupons = provider.kupons;
@@ -293,7 +365,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 columns: const [
                   DataColumn(label: Text('No.')),
                   DataColumn(label: Text('Nomor Kupon')),
-                  DataColumn(label: Text('Satker')),
+                    DataColumn(label: Text('Satker')),
                   DataColumn(label: Text('Jenis BBM')),
                   DataColumn(label: Text('Jenis Kupon')),
                   DataColumn(label: Text('NoPol')),
@@ -305,10 +377,23 @@ class _DashboardPageState extends State<DashboardPage> {
                 rows: kupons.asMap().entries.map((entry) {
                   final i = entry.key + 1;
                   final k = entry.value;
+                    // Ambil kendaraan dari _kendaraanList
+                    final kendaraan = _kendaraanList.firstWhere(
+                      (kend) => kend.kendaraanId == k.kendaraanId,
+                      orElse: () => KendaraanModel(
+                        kendaraanId: 0,
+                        satkerId: 0,
+                        jenisRanmor: '-',
+                        noPolKode: '-',
+                        noPolNomor: '-',
+                      ),
+                    );
+                      // Ambil nama satker langsung dari kupon
+                      String satkerText = k.namaSatker;
                   return DataRow(cells: [
                     DataCell(Text(i.toString())),
                     DataCell(Text(k.nomorKupon)),
-                    DataCell(Text(_satkerMap[k.kendaraanId] ?? k.kendaraanId.toString())),
+                      DataCell(Text(satkerText)),
                     DataCell(Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString())),
                     DataCell(Text(_jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId.toString())),
                     DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
@@ -318,7 +403,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     DataCell(IconButton(
                       icon: const Icon(Icons.info_outline),
                       onPressed: () {
-                        // TODO: tampilkan detail kupon
+                        _showKuponDetailDialog(context, k, kendaraan);
                       },
                     )),
                   ]);
@@ -380,6 +465,10 @@ class _DashboardPageState extends State<DashboardPage> {
         TextCellValue(k.status),
       ]);
     }
+      // Hapus sheet default kosong jika ada
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
 
     // Save dialog
     String? outputPath = await FilePicker.platform.saveFile(

@@ -260,6 +260,7 @@ class ExcelDatasource {
       tanggalSampai: tanggalSampai.toIso8601String(),
       kuotaAwal: kuantum,
       kuotaSisa: kuantum,
+      namaSatker: satker,
       status: 'Aktif',
       createdAt: DateTime.now().toIso8601String(),
       updatedAt: DateTime.now().toIso8601String(),

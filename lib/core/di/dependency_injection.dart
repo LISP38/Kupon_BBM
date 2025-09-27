@@ -6,10 +6,14 @@ import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository_impl.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository_impl.dart';
+import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
 
 final getIt = GetIt.instance;
 
 Future<void> initializeDependencies() async {
+  getIt.registerLazySingleton<TransaksiRepositoryImpl>(
+    () => TransaksiRepositoryImpl(getIt<DatabaseDatasource>()),
+  );
   // Datasources
   getIt.registerLazySingleton<DatabaseDatasource>(() => DatabaseDatasource());
 

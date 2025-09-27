@@ -27,7 +27,7 @@ class DatabaseDatasource {
     final path = join(dbDir.path, filePath);
     final dbFactory = databaseFactoryFfi;
 
-    print('DEBUG: Opening database at path: ' + path);
+    print('DEBUG: Opening database at path: $path');
 
     return await dbFactory.openDatabase(
       path,
@@ -93,21 +93,22 @@ class DatabaseDatasource {
     // ---- Fact tables ----
     batch.execute('''
       CREATE TABLE IF NOT EXISTS fact_kupon (
-        kupon_id INTEGER PRIMARY KEY,
-        nomor_kupon TEXT UNIQUE NOT NULL,
-        kendaraan_id INTEGER NOT NULL,
-        jenis_bbm_id INTEGER NOT NULL,
-        jenis_kupon_id INTEGER NOT NULL,
-        bulan_terbit INTEGER NOT NULL,
-        tahun_terbit INTEGER NOT NULL,
-        tanggal_mulai TEXT NOT NULL,
-        tanggal_sampai TEXT NOT NULL,
-        kuota_awal REAL NOT NULL,
-        kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
-        status TEXT DEFAULT 'Aktif',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        is_deleted INTEGER DEFAULT 0,
+  kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nomor_kupon TEXT UNIQUE NOT NULL,
+  kendaraan_id INTEGER NOT NULL,
+  jenis_bbm_id INTEGER NOT NULL,
+  jenis_kupon_id INTEGER NOT NULL,
+  bulan_terbit INTEGER NOT NULL,
+  tahun_terbit INTEGER NOT NULL,
+  tanggal_mulai TEXT NOT NULL,
+  tanggal_sampai TEXT NOT NULL,
+  kuota_awal REAL NOT NULL,
+  kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
+  nama_satker TEXT NOT NULL,
+  status TEXT DEFAULT 'Aktif',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  is_deleted INTEGER DEFAULT 0,
         FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id) 
           ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),

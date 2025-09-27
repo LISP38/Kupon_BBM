@@ -13,6 +13,7 @@ class KuponModel extends KuponEntity {
     required super.tanggalSampai,
     required super.kuotaAwal,
     required super.kuotaSisa,
+    required super.namaSatker,
     super.status = 'Aktif',
     super.createdAt,
     super.updatedAt,
@@ -32,6 +33,7 @@ class KuponModel extends KuponEntity {
       tanggalSampai: map['tanggal_sampai'] as String,
       kuotaAwal: (map['kuota_awal'] as num).toDouble(),
       kuotaSisa: (map['kuota_sisa'] as num).toDouble(),
+  namaSatker: map['nama_satker'] as String? ?? map['satker'] as String? ?? '',
       status: map['status'] as String? ?? 'Aktif',
       createdAt: map['created_at'] as String?,
       updatedAt: map['updated_at'] as String?,
@@ -51,6 +53,7 @@ class KuponModel extends KuponEntity {
     String? tanggalSampai,
     double? kuotaAwal,
     double? kuotaSisa,
+    String? namaSatker,
     String? status,
     String? createdAt,
     String? updatedAt,
@@ -68,6 +71,7 @@ class KuponModel extends KuponEntity {
       tanggalSampai: tanggalSampai ?? this.tanggalSampai,
       kuotaAwal: kuotaAwal ?? this.kuotaAwal,
       kuotaSisa: kuotaSisa ?? this.kuotaSisa,
+      namaSatker: namaSatker ?? this.namaSatker,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -76,8 +80,7 @@ class KuponModel extends KuponEntity {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'kupon_id': kuponId,
+    final map = <String, dynamic>{
       'nomor_kupon': nomorKupon,
       'kendaraan_id': kendaraanId,
       'jenis_bbm_id': jenisBbmId,
@@ -88,10 +91,16 @@ class KuponModel extends KuponEntity {
       'tanggal_sampai': tanggalSampai,
       'kuota_awal': kuotaAwal,
       'kuota_sisa': kuotaSisa,
+  'nama_satker': namaSatker,
       'status': status,
       'created_at': createdAt,
       'updated_at': updatedAt,
       'is_deleted': isDeleted,
     };
+    // Hanya sertakan kupon_id jika > 0 (untuk update, bukan insert baru)
+    if (kuponId > 0) {
+      map['kupon_id'] = kuponId;
+    }
+    return map;
   }
 }

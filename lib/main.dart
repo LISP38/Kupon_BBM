@@ -10,6 +10,8 @@ import 'package:kupon_bbm_app/presentation/pages/main_page.dart';
 import 'package:kupon_bbm_app/presentation/providers/dashboard_provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:kupon_bbm_app/presentation/providers/transaksi_provider.dart';
+import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() async {
@@ -33,6 +35,9 @@ void main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => DashboardProvider(getIt<KuponRepository>()),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => TransaksiProvider(getIt<TransaksiRepositoryImpl>()),
         ),
         // Daftarkan provider lain di sini nanti
       ],
