@@ -202,7 +202,7 @@ class ImportPage extends StatelessWidget {
                     onPressed: provider.isLoading
                         ? null
                         : () async {
-                            final success = await provider.startImport(replaceMode: provider.replaceMode);
+                            final success = await provider.startImport();
                             if (success == true && onImportSuccess != null) {
                               onImportSuccess!();
                             }

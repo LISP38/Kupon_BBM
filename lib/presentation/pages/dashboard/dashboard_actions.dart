@@ -127,7 +127,6 @@ class DashboardActions extends StatelessWidget {
             createdAt: now,
             updatedAt: now,
             isDeleted: 0,
-            jumlahDiambil: jumlahLiter.toInt(),
             status: 'pending',
           ),
         );

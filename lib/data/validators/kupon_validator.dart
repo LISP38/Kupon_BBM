@@ -18,11 +18,10 @@ class KuponValidator {
     List<KuponModel> existingKupons,
     KuponModel newKupon,
     String noPol,
-    int kendaraanId,
   ) {
     // Cek kupon yang sudah ada untuk kendaraan yang sama
     final kendaraanKupons = existingKupons
-        .where((k) => k.kendaraanId == kendaraanId)
+        .where((k) => k.kendaraanId == newKupon.kendaraanId)
         .toList();
 
     if (kendaraanKupons.isNotEmpty &&
@@ -38,15 +37,44 @@ class KuponValidator {
     return KuponValidationResult(isValid: true);
   }
 
-  // Validasi maksimal 2 kupon per bulan (1 Ranjen + 1 Dukungan) - DINONAKTIFKAN UNTUK IMPORT
+  // Validasi maksimal 2 kupon per bulan (1 Ranjen + 1 Dukungan)
   KuponValidationResult validateKuponPerBulan(
     List<KuponModel> existingKupons,
     KuponModel newKupon,
     String noPol,
-    int kendaraanId,
   ) {
-    // Sementara dinonaktifkan validasi jumlah kupon per bulan untuk import
-    // Untuk mengizinkan import multiple kupon jenis yang sama
+    // Cek kupon yang sudah ada untuk bulan dan tahun yang sama
+    final periodKupons = existingKupons
+        .where(
+          (k) =>
+              k.kendaraanId == newKupon.kendaraanId &&
+              k.bulanTerbit == newKupon.bulanTerbit &&
+              k.tahunTerbit == newKupon.tahunTerbit,
+        )
+        .toList();
+
+    // Hitung jumlah kupon Ranjen dan Dukungan
+    final ranjenCount = periodKupons.where((k) => k.jenisKuponId == 1).length;
+    final dukunganCount = periodKupons.where((k) => k.jenisKuponId == 2).length;
+
+    if (newKupon.jenisKuponId == 1 && ranjenCount >= 1) {
+      return KuponValidationResult(
+        isValid: false,
+        messages: [
+          'Kendaraan dengan No Pol $noPol sudah memiliki kupon Ranjen untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
+        ],
+      );
+    }
+
+    if (newKupon.jenisKuponId == 2 && dukunganCount >= 1) {
+      return KuponValidationResult(
+        isValid: false,
+        messages: [
+          'Kendaraan dengan No Pol $noPol sudah memiliki kupon Dukungan untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
+        ],
+      );
+    }
+
     return KuponValidationResult(isValid: true);
   }
 
@@ -78,50 +106,27 @@ class KuponValidator {
   }
 
   // Validasi keseluruhan untuk satu kupon
-  Future<KuponValidationResult> validateKupon(
+  KuponValidationResult validateKupon(
     List<KuponModel> existingKupons,
     KuponModel newKupon,
-    String noPol, {
-    bool allowReplace = false,
-  }) async {
+    String noPol,
+  ) {
     final List<String> allMessages = [];
 
-    int tempKendaraanId = newKupon.kendaraanId;
-    if (tempKendaraanId == 0) {
-      final parts = noPol.trim().split(RegExp(r'\s+'));
-      if (parts.length >= 2) {
-        final kode = parts[0];
-        final nomor = parts[1];
-        final existingKendaraan = await _kendaraanRepository
-            .findKendaraanByNoPol(kode, nomor);
-        if (existingKendaraan != null) {
-          tempKendaraanId = existingKendaraan.kendaraanId;
-        }
-      }
-    }
-
     // Validasi jenis BBM
-    final bbmResult = validateBBMPerKendaraan(
-      existingKupons,
-      newKupon,
-      noPol,
-      tempKendaraanId,
-    );
+    final bbmResult = validateBBMPerKendaraan(existingKupons, newKupon, noPol);
     if (!bbmResult.isValid) {
       allMessages.addAll(bbmResult.messages);
     }
 
-    // Validasi jumlah kupon per bulan (skip jika allowReplace)
-    if (!allowReplace) {
-      final kuponPerBulanResult = validateKuponPerBulan(
-        existingKupons,
-        newKupon,
-        noPol,
-        tempKendaraanId,
-      );
-      if (!kuponPerBulanResult.isValid) {
-        allMessages.addAll(kuponPerBulanResult.messages);
-      }
+    // Validasi jumlah kupon per bulan
+    final kuponPerBulanResult = validateKuponPerBulan(
+      existingKupons,
+      newKupon,
+      noPol,
+    );
+    if (!kuponPerBulanResult.isValid) {
+      allMessages.addAll(kuponPerBulanResult.messages);
     }
 
     // Validasi range tanggal

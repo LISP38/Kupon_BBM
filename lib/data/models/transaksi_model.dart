@@ -12,7 +12,6 @@ class TransaksiModel extends TransaksiEntity {
     required super.createdAt,
     super.updatedAt,
     super.isDeleted = 0,
-    super.jumlahDiambil = 0,
     super.status = 'Aktif',
     super.kuponCreatedAt,
     super.kuponExpiredAt,
@@ -30,7 +29,6 @@ class TransaksiModel extends TransaksiEntity {
       createdAt: map['created_at'] as String,
       updatedAt: map['updated_at'] as String? ?? map['created_at'] as String,
       isDeleted: map['is_deleted'] as int? ?? 0,
-      jumlahDiambil: map['jumlah_diambil'] as int? ?? 0,
       status: map['status'] as String? ?? 'pending',
       kuponCreatedAt: map['kupon_created_at'] as String?,
       kuponExpiredAt: map['kupon_expired_at'] as String?,
@@ -41,12 +39,14 @@ class TransaksiModel extends TransaksiEntity {
     return {
       'transaksi_id': transaksiId,
       'kupon_id': kuponId,
+      'nomor_kupon': nomorKupon,
+      'nama_satker': namaSatker,
+      'jenis_bbm_id': jenisBbmId,
       'jumlah_liter': jumlahLiter,
       'tanggal_transaksi': tanggalTransaksi,
       'created_at': createdAt,
       'updated_at': updatedAt,
       'is_deleted': isDeleted,
-      'jumlah_diambil': jumlahDiambil,
       'status': status,
     };
   }

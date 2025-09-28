@@ -76,7 +76,6 @@ class ExcelDatasource {
               existingKupons,
               kupon,
               '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
-              allowReplace: allowReplace,
             );
 
             if (!validationResult.isValid) {

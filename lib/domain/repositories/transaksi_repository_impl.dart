@@ -105,9 +105,9 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
       final kupon = kuponResult.first;
       final kuotaSisa = (kupon['kuota_sisa'] as num).toDouble();
 
-      if (kuotaSisa < transaksi.jumlahLiter) {
-        throw Exception('Jumlah liter melebihi sisa kuota');
-      }
+      // if (kuotaSisa < transaksi.jumlahLiter) {
+      //   throw Exception('Jumlah liter melebihi sisa kuota');
+      // }
 
       // 2. Insert new transaction
       await txn.insert('fact_transaksi', {
@@ -120,6 +120,7 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
         'created_at': transaksi.createdAt,
         'updated_at': transaksi.createdAt,
         'is_deleted': 0,
+        'status': transaksi.status ?? 'pending',
       });
 
       // 3. Update kupon sisa

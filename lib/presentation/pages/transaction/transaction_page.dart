@@ -239,7 +239,7 @@ class _TransactionPageState extends State<TransactionPage> {
         TextCellValue(t.tanggalTransaksi),
         TextCellValue(t.nomorKupon),
         TextCellValue(t.jenisBbmId.toString()),
-        DoubleCellValue(t.jumlahDiambil?.toDouble() ?? 0),
+        DoubleCellValue(t.jumlahLiter),
       ]);
     }
     if (excel.sheets.containsKey('Sheet1')) {
@@ -368,11 +368,31 @@ class _TransactionPageState extends State<TransactionPage> {
                   return;
                 }
                 if (kupon.kuotaSisa < (_jumlahLiter ?? 0)) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Kuota tidak cukup!')),
+                  final lanjut = await showDialog<bool>(
+                    context: context,
+                    builder: (context) {
+                      return AlertDialog(
+                        title: const Text('Konfirmasi'),
+                        content: Text(
+                          'Jumlah liter melebihi kuota sisa (${kupon?.kuotaSisa} L tersisa). Apakah tetap ingin melanjutkan?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Batal'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Lanjutkan'),
+                          ),
+                        ],
+                      );
+                    },
                   );
-                  return;
+
+                  if (lanjut != true) return;
                 }
+
                 final transaksiBaru = TransaksiModel(
                   transaksiId: 0,
                   kuponId: kupon.kuponId,
@@ -380,8 +400,7 @@ class _TransactionPageState extends State<TransactionPage> {
                   namaSatker: kupon.namaSatker,
                   jenisBbmId: jenisBbm,
                   tanggalTransaksi: _tanggalController.text,
-                  jumlahLiter: _jumlahLiter?.toDouble() ?? 0,
-                  jumlahDiambil: (_jumlahLiter ?? 0).toInt(),
+                  jumlahLiter: _jumlahLiter ?? 0,
                   createdAt: DateTime.now().toIso8601String(),
                   updatedAt: DateTime.now().toIso8601String(),
                   isDeleted: 0,
@@ -425,7 +444,6 @@ class _TransactionPageState extends State<TransactionPage> {
                       jenisBbmId: t.jenisBbmId,
                       tanggalTransaksi: t.tanggalTransaksi,
                       jumlahLiter: t.jumlahLiter,
-                      jumlahDiambil: t.jumlahDiambil,
                       createdAt: t.createdAt,
                       updatedAt:
                           t.updatedAt ?? DateTime.now().toIso8601String(),
@@ -454,7 +472,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       DataCell(Text(t.tanggalTransaksi)),
                       DataCell(Text(t.nomorKupon)),
                       DataCell(Text(t.jenisBbmId == 1 ? 'Pertamax' : 'Dex')),
-                      DataCell(Text(t.jumlahDiambil.toString())),
+                      DataCell(Text(t.jumlahLiter.toString())),
                       DataCell(
                         Row(
                           children: [
@@ -523,7 +541,7 @@ class _TransactionPageState extends State<TransactionPage> {
     final _formKey = GlobalKey<FormState>();
     final _tanggalController = TextEditingController(text: t.tanggalTransaksi);
     final _jumlahController = TextEditingController(
-      text: t.jumlahDiambil.toString(),
+      text: t.jumlahLiter.toString(),
     );
     int _jenisBBM = t.jenisBbmId;
     await showDialog(
@@ -583,10 +601,6 @@ class _TransactionPageState extends State<TransactionPage> {
                     createdAt: t.createdAt,
                     updatedAt: DateTime.now().toIso8601String(),
                     isDeleted: t.isDeleted,
-                    jumlahDiambil:
-                        (double.tryParse(_jumlahController.text) ??
-                                t.jumlahLiter)
-                            .toInt(),
                     status: t.status,
                   );
                   await transaksiProvider.updateTransaksi(transaksiEdit);
