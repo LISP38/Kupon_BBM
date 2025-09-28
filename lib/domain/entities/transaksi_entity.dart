@@ -12,6 +12,9 @@ class TransaksiEntity {
   final String? createdAt;
   final int isDeleted;
   final String? deletedAt;
+  final String status;
+
+  String get jenisBbm => jenisBbmId.toString();
 
   const TransaksiEntity({
     required this.purchasingId,
@@ -27,5 +30,6 @@ class TransaksiEntity {
     this.createdAt,
     this.isDeleted = 0,
     this.deletedAt,
+    this.status = 'completed',
   });
 }

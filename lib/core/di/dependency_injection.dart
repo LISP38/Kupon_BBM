@@ -6,6 +6,8 @@ import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository_impl.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository_impl.dart';
+import 'package:kupon_bbm_app/domain/repositories/master_data_repository.dart';
+import 'package:kupon_bbm_app/domain/repositories/master_data_repository_impl.dart';
 import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
 
 final getIt = GetIt.instance;
@@ -26,6 +28,10 @@ Future<void> initializeDependencies() async {
     () => KuponRepositoryImpl(getIt<DatabaseDatasource>()),
   );
 
+  getIt.registerLazySingleton<MasterDataRepository>(
+    () => MasterDataRepositoryImpl(getIt<DatabaseDatasource>()),
+  );
+
   // Validators
   getIt.registerLazySingleton<KuponValidator>(
     () => KuponValidator(getIt<KendaraanRepository>()),
@@ -33,6 +39,6 @@ Future<void> initializeDependencies() async {
 
   // Excel datasource - harus didaftarkan setelah validator
   getIt.registerLazySingleton<ExcelDatasource>(
-    () => ExcelDatasource(getIt<KuponValidator>()),
+    () => ExcelDatasource(getIt<KuponValidator>(), getIt<DatabaseDatasource>()),
   );
 }

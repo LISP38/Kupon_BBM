@@ -25,6 +25,23 @@ class TransaksiProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> createTransaksi({
+    required int kuponId,
+    required double jumlahLiter,
+  }) async {
+    final success = await _transaksiRepository.createTransaksi(
+      kuponId: kuponId,
+      jumlahLiter: jumlahLiter,
+    );
+
+    if (success) {
+      // Refresh data after successful transaction
+      await fetchTransaksiFiltered();
+    }
+
+    return success;
+  }
+
   Future<void> fetchTransaksiFiltered() async {
     _transaksiList = await _transaksiRepository.getAllTransaksi(
       bulan: filterBulan,
@@ -46,6 +63,26 @@ class TransaksiProvider extends ChangeNotifier {
     await _transaksiRepository.insertTransaksi(transaksi);
     await fetchTransaksiFiltered();
     await fetchKuponMinus();
+  }
+
+  void setBulan(int bulan) {
+    filterBulan = bulan;
+    notifyListeners();
+  }
+
+  void setTahun(int tahun) {
+    filterTahun = tahun;
+    notifyListeners();
+  }
+
+  void resetFilter() {
+    filterBulan = null;
+    filterTahun = null;
+    filterHari = null;
+    filterNomorKupon = null;
+    filterSatker = null;
+    filterJenisBbmId = null;
+    notifyListeners();
   }
 
   Future<void> updateTransaksi(TransaksiEntity transaksi) async {

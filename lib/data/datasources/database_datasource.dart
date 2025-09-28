@@ -45,7 +45,9 @@ class DatabaseDatasource {
           print('DEBUG: onUpgrade called from $oldVersion to $newVersion');
           if (oldVersion < 2) {
             // Remove UNIQUE constraint from nomor_kupon
-            await db.execute('CREATE TABLE fact_kupon_temp AS SELECT * FROM fact_kupon');
+            await db.execute(
+              'CREATE TABLE fact_kupon_temp AS SELECT * FROM fact_kupon',
+            );
             await db.execute('DROP TABLE fact_kupon');
             await db.execute('''
               CREATE TABLE fact_kupon (
@@ -71,7 +73,9 @@ class DatabaseDatasource {
                 FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id)
               );
             ''');
-            await db.execute('INSERT INTO fact_kupon SELECT * FROM fact_kupon_temp');
+            await db.execute(
+              'INSERT INTO fact_kupon SELECT * FROM fact_kupon_temp',
+            );
             await db.execute('DROP TABLE fact_kupon_temp');
             print('DEBUG: UNIQUE constraint removed from nomor_kupon');
           }
@@ -94,7 +98,7 @@ class DatabaseDatasource {
     ''');
     batch.execute('''
       INSERT OR IGNORE INTO dim_satker (satker_id, nama_satker)
-      VALUES (1, 'Default');
+      VALUES (1, 'KAPOLDA');
     ''');
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_jenis_bbm (

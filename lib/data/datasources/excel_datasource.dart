@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:excel/excel.dart';
+import 'package:kupon_bbm_app/data/datasources/database_datasource.dart';
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
 import 'package:kupon_bbm_app/data/models/kendaraan_model.dart';
 import 'package:kupon_bbm_app/data/validators/kupon_validator.dart';
@@ -18,9 +19,10 @@ class ExcelParseResult {
 
 class ExcelDatasource {
   final KuponValidator _kuponValidator;
+  final DatabaseDatasource _databaseDatasource;
   static const String DEFAULT_KODE_NOPOL = 'VIII';
 
-  ExcelDatasource(this._kuponValidator);
+  ExcelDatasource(this._kuponValidator, this._databaseDatasource);
 
   // Helper untuk konversi angka romawi ke integer
   int? _parseRomanNumeral(String roman) {
@@ -42,11 +44,11 @@ class ExcelDatasource {
     return romanValues[roman.trim().toUpperCase()];
   }
 
-Future<ExcelParseResult> parseExcelFile(
-  String filePath,
-  List<KuponModel> existingKupons, {
-  bool allowReplace = false,
-}) async {
+  Future<ExcelParseResult> parseExcelFile(
+    String filePath,
+    List<KuponModel> existingKupons, {
+    bool allowReplace = false,
+  }) async {
     final bytes = File(filePath).readAsBytesSync();
     final excel = Excel.decodeBytes(bytes);
 
@@ -68,33 +70,33 @@ Future<ExcelParseResult> parseExcelFile(
     for (var row in sheet.rows) {
       try {
         // Parse data dari row
-        final data = _parseRow(row);
+        final data = await _parseRow(row);
         if (data != null) {
           final (kupon, kendaraan) = data;
 
-            if (kendaraan != null) {
-              // Validasi business rules
-              final validationResult = await _kuponValidator.validateKupon(
-                existingKupons,
-                kupon,
-                '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
-                allowReplace: allowReplace,
+          if (kendaraan != null) {
+            // Validasi business rules
+            final validationResult = await _kuponValidator.validateKupon(
+              existingKupons,
+              kupon,
+              '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
+              allowReplace: allowReplace,
+            );
+
+            if (!validationResult.isValid) {
+              validationMessages.addAll(
+                validationResult.messages.map(
+                  (msg) => 'Baris ${sheet.rows.indexOf(row) + 1}: $msg',
+                ),
               );
-
-              if (!validationResult.isValid) {
-                validationMessages.addAll(
-                  validationResult.messages.map(
-                    (msg) => 'Baris ${sheet.rows.indexOf(row) + 1}: $msg',
-                  ),
-                );
-                if (!allowReplace) {
-                  continue; // Skip row ini jika tidak valid dan bukan replace mode
-                }
+              if (!allowReplace) {
+                continue; // Skip row ini jika tidak valid dan bukan replace mode
               }
-
-              kupons.add(kupon);
-              newKendaraans.add(kendaraan);
             }
+
+            kupons.add(kupon);
+            newKendaraans.add(kendaraan);
+          }
         }
       } catch (e) {
         validationMessages.add(
@@ -119,7 +121,7 @@ Future<ExcelParseResult> parseExcelFile(
     return str;
   }
 
-  (KuponModel, KendaraanModel?)? _parseRow(List<Data?> row) {
+  Future<(KuponModel, KendaraanModel?)?> _parseRow(List<Data?> row) async {
     if (row.isEmpty || row.length < 10) return null;
 
     // Skip empty rows or headers
@@ -236,9 +238,22 @@ Future<ExcelParseResult> parseExcelFile(
 
     print('Debug - Creating KendaraanModel with noPolNomor: "$noPol"');
 
+    // Get satkerId from database
+    final db = await _databaseDatasource.database;
+    final satkerResult = await db.query(
+      'dim_satker',
+      where: 'nama_satker = ?',
+      whereArgs: [satker],
+      limit: 1,
+    );
+
+    final satkerId = satkerResult.isNotEmpty
+        ? satkerResult.first['satker_id'] as int
+        : 1;
+
     final kendaraan = KendaraanModel(
       kendaraanId: 0,
-      satkerId: 1, // Menggunakan satker_id default = 1
+      satkerId: satkerId,
       jenisRanmor: jenisRanmor,
       noPolKode: finalKodeNopol,
       noPolNomor: noPolStr, // Gunakan string asli, bukan hasil extract
@@ -264,6 +279,7 @@ Future<ExcelParseResult> parseExcelFile(
       tanggalSampai: tanggalSampai.toIso8601String(),
       kuotaAwal: kuantum,
       kuotaSisa: kuantum,
+      satkerId: satkerId, // Gunakan satkerId yang didapat dari database
       namaSatker: satker,
       status: 'Aktif',
       createdAt: DateTime.now().toIso8601String(),

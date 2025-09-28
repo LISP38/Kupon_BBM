@@ -1,0 +1,943 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/dashboard_provider.dart';
+import '../../providers/transaksi_provider.dart';
+import '../../../core/di/dependency_injection.dart';
+import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
+import '../../../domain/entities/kendaraan_entity.dart';
+import '../../../data/models/kendaraan_model.dart';
+
+class DashboardPage extends StatefulWidget {
+  const DashboardPage({super.key});
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  Widget _buildTransaksiTable(BuildContext context) {
+    return Consumer<TransaksiProvider>(
+      builder: (context, provider, _) {
+        final transaksi = provider.transaksiList;
+        
+        if (transaksi.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Text('Tidak ada data transaksi', style: TextStyle(fontSize: 18)),
+            ),
+          );
+        }
+        
+        return Card(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('Tanggal')),
+                DataColumn(label: Text('Nomor Kupon')),
+                DataColumn(label: Text('Jenis BBM')),
+                DataColumn(label: Text('Jumlah (L)')),
+                DataColumn(label: Text('Status')),
+              ],
+              rows: transaksi.map((t) => DataRow(
+                cells: [
+                  DataCell(Text(t.tanggalTransaksi)),
+                  DataCell(Text(t.nomorKupon)),
+                  DataCell(Text(t.jenisBbm == '1' ? 'Pertamax' : 'Pertamina Dex')),
+                  DataCell(Text(t.jumlahDiambil.toString())),
+                  DataCell(Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: t.status == 'completed' ? Colors.green : Colors.blue,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      t.status == 'completed' ? 'Selesai' : 'Proses',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  )),
+                ],
+              )).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _exportTransaksiToExcel() async {
+    final provider = Provider.of<TransaksiProvider>(context, listen: false);
+    final transaksi = provider.transaksiList;
+    if (transaksi.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak ada data transaksi untuk diexport.')));
+      return;
+    }
+
+    final excel = Excel.createExcel();
+    final sheet = excel['Transaksi'];
+    
+    sheet.appendRow([
+      TextCellValue('Tanggal'),
+      TextCellValue('Nomor Kupon'),
+      TextCellValue('Jenis BBM'),
+      TextCellValue('Jumlah (L)'),
+    ]);
+
+    for (final t in transaksi) {
+      sheet.appendRow([
+        TextCellValue(t.tanggalTransaksi),
+        TextCellValue(t.nomorKupon),
+        TextCellValue(t.jenisBbm),
+        DoubleCellValue(t.jumlahDiambil),
+      ]);
+    }
+
+    if (excel.sheets.containsKey('Sheet1')) {
+      excel.delete('Sheet1');
+    }
+
+    String? outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Simpan file Excel',
+      fileName: 'export_transaksi_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
+
+    if (outputPath == null) return;
+
+    final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gagal membuat file Excel.')));
+      return;
+    }
+
+    final file = File(outputPath);
+    await file.writeAsBytes(fileBytes, flush: true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Export berhasil: $outputPath')));
+  }
+
+  Future<void> _showTambahTransaksiDialog(BuildContext context, {required String jenisBBM}) async {
+    final dashboardProvider = Provider.of<DashboardProvider>(context, listen: false);
+    final transaksiProvider = Provider.of<TransaksiProvider>(context, listen: false);
+    
+    // Convert jenisBBM string to ID
+    final int jenisBbmId = jenisBBM == 'Pertamax' ? 1 : 2;
+    
+    // Filter kuponList sesuai jenisBbm
+    final List<KuponEntity> kuponList = dashboardProvider.kupons
+        .where((k) => k.jenisBbmId == jenisBbmId).toList();
+    final List<String> kuponOptions = kuponList
+        .map((k) => '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}')
+        .toList();
+
+    final _formKey = GlobalKey<FormState>();
+    final _tanggalController = TextEditingController(
+        text: DateTime.now().toIso8601String().substring(0, 10));
+    String? _nomorKupon;
+    double? _jumlahLiter;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('Tambah Transaksi ${jenisBBM}'),
+          content: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _tanggalController,
+                  decoration: const InputDecoration(labelText: 'Tanggal'),
+                  readOnly: true,
+                ),
+                Autocomplete<String>(
+                  optionsBuilder: (TextEditingValue textEditingValue) {
+                    return kuponOptions.where((option) => 
+                        option.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                  },
+                  onSelected: (value) {
+                    _nomorKupon = value.split('/')[0]; // Get only nomor kupon
+                  },
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      decoration: const InputDecoration(labelText: 'Nomor Kupon'),
+                      validator: (value) => value == null || value.isEmpty 
+                          ? 'Pilih nomor kupon' 
+                          : null,
+                    );
+                  },
+                ),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Jumlah Liter'),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) {
+                    _jumlahLiter = double.tryParse(value);
+                  },
+                  validator: (value) => value == null || value.isEmpty 
+                      ? 'Masukkan jumlah liter' 
+                      : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (_formKey.currentState!.validate() && _nomorKupon != null && _jumlahLiter != null) {
+                  final success = await transaksiProvider.createTransaksi(
+                    nomorKupon: _nomorKupon!,
+                    jumlahDiambil: _jumlahLiter!,
+                    tanggalTransaksi: _tanggalController.text,
+                    jenisBbmId: jenisBbmId,
+                  );
+                  
+                  if (success && mounted) {
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Transaksi berhasil ditambahkan')),
+                    );
+                    // Refresh data
+                    transaksiProvider.fetchTransaksiFiltered();
+                    transaksiProvider.fetchKuponMinus();
+                    dashboardProvider.fetchKupons();
+                  }
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _exportKuponMinusToExcel() async {
+    final provider = Provider.of<TransaksiProvider>(context, listen: false);
+    final kuponMinus = provider.kuponMinusList;
+    if (kuponMinus.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak ada data kupon minus untuk diexport.')));
+      return;
+    }
+
+    final excel = Excel.createExcel();
+    final sheet = excel['Kupon Minus'];
+    
+    sheet.appendRow([
+      TextCellValue('Nomor Kupon'),
+      TextCellValue('Total Minus (L)'),
+    ]);
+
+    for (final km in kuponMinus) {
+      sheet.appendRow([
+        TextCellValue(km.nomorKupon),
+        DoubleCellValue(km.totalMinus),
+      ]);
+    }
+
+    if (excel.sheets.containsKey('Sheet1')) {
+      excel.delete('Sheet1');
+    }
+
+    String? outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Simpan file Excel',
+      fileName: 'export_kupon_minus_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
+
+    if (outputPath == null) return;
+
+    final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gagal membuat file Excel.')));
+      return;
+    }
+
+    final file = File(outputPath);
+    await file.writeAsBytes(fileBytes, flush: true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Export berhasil: $outputPath')));
+  }
+
+  Widget _buildKuponMinusTable(BuildContext context) {
+    return Consumer<TransaksiProvider>(
+      builder: (context, provider, _) {
+        final kuponMinus = provider.kuponMinusList;
+        return Card(
+          child: SingleChildScrollView(
+            scrollDirection: Horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('Nomor Kupon')),
+                DataColumn(label: Text('Total Minus (L)')),
+              ],
+              rows: kuponMinus.map((km) => DataRow(
+                cells: [
+                  DataCell(Text(km.nomorKupon)),
+                  DataCell(Text(km.totalMinus.toString())),
+                ],
+              )).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAddTransactionButtons(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamax'),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Transaksi Pertamax'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton.icon(
+              onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamina Dex'),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Transaksi Dex'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildSummarySection(BuildContext context) {
+    return Consumer<DashboardProvider>(
+      builder: (context, provider, _) {
+        return Card(
+          color: Colors.blue.shade50,
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Text(
+                  'Total Kupon: ',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  provider.kupons.length.toString(),
+                  style: TextStyle(fontSize: 18, color: Colors.blue.shade900, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+  bool _firstLoad = true;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Auto-refresh data setiap kali tab dashboard muncul
+    if (_firstLoad) {
+      Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
+      Provider.of<TransaksiProvider>(context, listen: false).fetchTransaksiFiltered();
+      Provider.of<TransaksiProvider>(context, listen: false).fetchKuponMinus();
+      _firstLoad = false;
+    }
+  }
+  // Filter state
+  int? _selectedBulan;
+  int? _selectedTahun;
+
+  final List<int> _bulanList = List.generate(12, (i) => i + 1);
+  final List<int> _tahunList = [DateTime.now().year, DateTime.now().year + 1];
+  
+  List<KendaraanEntity> _kendaraanList = [];
+
+  // Map jenis BBM untuk tampilan
+  final Map<int, String> _jenisBBMMap = {1: 'Pertamax', 2: 'Pertamina Dex'};
+  
+  // Map jenis kupon untuk tampilan
+  final Map<int, String> _jenisKuponMap = {1: 'Ranjen', 2: 'Dukungan'};
+
+  // Mendapatkan NoPol dari kendaraanId
+  String _getNopolByKendaraanId(int kendaraanId) {
+    final kendaraan = _kendaraanList.firstWhere(
+      (k) => k.kendaraanId == kendaraanId,
+      orElse: () => KendaraanModel(
+        kendaraanId: 0,
+        satkerId: 0,
+        jenisRanmor: '-',
+        noPolKode: '-',
+        noPolNomor: '-',
+      ),
+    );
+    return '${kendaraan.noPolNomor}-${kendaraan.noPolKode}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    final repo = getIt<KendaraanRepository>();
+    final kendaraanList = await repo.getAllKendaraan();
+    setState(() {
+      _kendaraanList = kendaraanList;
+    });
+  }
+
+  String _getBulanName(int bulan) {
+    final namaBulan = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    return namaBulan[bulan - 1];
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchKendaraanList();
+    Future.microtask(() {
+      Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
+      Provider.of<TransaksiProvider>(context, listen: false).fetchTransaksiFiltered();
+      Provider.of<TransaksiProvider>(context, listen: false).fetchKuponMinus();
+    });
+  }
+
+  Future<void> _fetchSatkerList() async {
+  // final repo = getIt<MasterDataRepository>();
+  // _satkerList = await repo.getAllSatker();
+  // setState(() {});
+  }
+
+  Future<void> _fetchKendaraanList() async {
+    final repo = getIt<KendaraanRepository>();
+    _kendaraanList = await repo.getAllKendaraan();
+    setState(() {});
+  }
+
+  String _getNopolByKendaraanId(int kendaraanId) {
+    final kendaraan = _kendaraanList.firstWhere(
+      (k) => k.kendaraanId == kendaraanId,
+      orElse: () => KendaraanModel(
+        kendaraanId: 0,
+        satkerId: 0,
+        jenisRanmor: '-',
+        noPolKode: '-',
+        noPolNomor: '-',
+      ),
+    );
+    if (kendaraan.kendaraanId == 0) return '-';
+    return '${kendaraan.noPolNomor}-${kendaraan.noPolKode}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummarySection(context),
+            _buildFilterSection(context),
+            const SizedBox(height: 16),
+            _buildAddTransactionButtons(context),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Data Transaksi', 
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ElevatedButton.icon(
+                  onPressed: _exportTransaksiToExcel,
+                  icon: const Icon(Icons.download),
+                  label: const Text('Export Transaksi'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              flex: 2,
+              child: _buildTransaksiTable(context),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Data Kupon Minus', 
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ElevatedButton.icon(
+                  onPressed: _exportKuponMinusToExcel,
+                  icon: const Icon(Icons.download),
+                  label: const Text('Export Kupon Minus'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              flex: 1,
+              child: _buildKuponMinusTable(context),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard Kupon'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            tooltip: 'Import Data',
+                      onPressed: () async {
+              await Navigator.pushNamed(context, '/import');
+              // Setelah kembali dari import, refresh data
+              if (mounted) {
+                Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
+              }
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummarySection(context),
+            _buildFilterSection(context),
+            const SizedBox(height: 16),
+            Expanded(child: _buildMasterKuponTable(context)),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  // Export functionality removed
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Export Data'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddTransactionButtons(BuildContext context) {
+    return Row(
+      children: [
+        ElevatedButton.icon(
+          onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamax'),
+          icon: const Icon(Icons.add),
+          label: const Text('Tambah Transaksi Pertamax'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+        ),
+        const SizedBox(width: 16),
+        ElevatedButton.icon(
+          onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamina Dex'),
+          icon: const Icon(Icons.add),
+          label: const Text('Tambah Transaksi Dex'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterSection(BuildContext context) {
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              children: [
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedBulan,
+                    items: _bulanList
+                        .map((bulan) => DropdownMenuItem(
+                              value: bulan,
+                              child: Text('Bulan $bulan'),
+                            ))
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedBulan = val),
+                    decoration: const InputDecoration(
+                      labelText: 'Bulan',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<int>(
+                    value: _selectedTahun,
+                    items: _tahunList
+                        .map((tahun) => DropdownMenuItem(
+                              value: tahun,
+                              child: Text(tahun.toString()),
+                            ))
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedTahun = val),
+                    decoration: const InputDecoration(
+                      labelText: 'Tahun',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Provider.of<TransaksiProvider>(context, listen: false)
+                        .fetchTransaksiFiltered(bulan: _selectedBulan, tahun: _selectedTahun);
+                    Provider.of<TransaksiProvider>(context, listen: false).fetchKuponMinus();
+                  },
+                  icon: const Icon(Icons.search),
+                  label: const Text('Cari'),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedBulan = null;
+                      _selectedTahun = null;
+                    });
+                    Provider.of<TransaksiProvider>(context, listen: false).fetchTransaksiFiltered();
+                    Provider.of<TransaksiProvider>(context, listen: false).fetchKuponMinus();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reset'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddTransactionButtons(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          children: [
+            ElevatedButton.icon(
+              onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamax'),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Transaksi Pertamax'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton.icon(
+              onPressed: () => _showTambahTransaksiDialog(context, jenisBBM: 'Pertamina Dex'),
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Transaksi Dex'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+                    });
+                    Provider.of<TransaksiProvider>(context, listen: false).fetchTransaksiFiltered();
+                    Provider.of<TransaksiProvider>(context, listen: false).fetchKuponMinus();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reset'),
+                ),
+                        .map((namaSatker) => DropdownMenuItem(
+                              value: namaSatker,
+                              child: Text(namaSatker),
+                            ))
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedSatker = val),
+                    decoration: const InputDecoration(labelText: 'Satker', border: OutlineInputBorder()),
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedJenisBBM,
+                    items: _jenisBBMMap.entries.map((e) => DropdownMenuItem(value: e.value, child: Text(e.value))).toList(),
+                    onChanged: (val) => setState(() => _selectedJenisBBM = val),
+                    decoration: const InputDecoration(labelText: 'Jenis BBM', border: OutlineInputBorder()),
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedJenisKupon,
+                    items: _jenisKuponMap.entries.map((e) => DropdownMenuItem(value: e.value, child: Text(e.value))).toList(),
+                    onChanged: (val) => setState(() => _selectedJenisKupon = val),
+                    decoration: const InputDecoration(labelText: 'Jenis Kupon', border: OutlineInputBorder()),
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: TextField(
+                    controller: _nopolController,
+                    decoration: const InputDecoration(
+                      labelText: 'NoPol',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _selectedBulan,
+                    items: _bulanList.map((e) => DropdownMenuItem(value: e, child: Text(e.toString()))).toList(),
+                    onChanged: (val) => setState(() => _selectedBulan = val),
+                    decoration: const InputDecoration(labelText: 'Bulan', border: OutlineInputBorder()),
+                  ),
+                ),
+                SizedBox(
+                  width: 120,
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _selectedTahun,
+                    items: _tahunList.map((e) => DropdownMenuItem(value: e, child: Text(e.toString()))).toList(),
+                    onChanged: (val) => setState(() => _selectedTahun = val),
+                    decoration: const InputDecoration(labelText: 'Tahun', border: OutlineInputBorder()),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    provider.setFilter(
+                      nomorKupon: _nomorKuponController.text,
+                      satker: _selectedSatker,
+                      jenisBBM: _selectedJenisBBM,
+                      jenisKupon: _selectedJenisKupon,
+                      nopol: _nopolController.text,
+                      bulanTerbit: _selectedBulan,
+                      tahunTerbit: _selectedTahun,
+                    );
+                  },
+                  icon: const Icon(Icons.search),
+                  label: const Text('Cari'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _nomorKuponController.clear();
+                    _nopolController.clear();
+                    setState(() {
+                      _selectedSatker = null;
+                      _selectedJenisBBM = null;
+                      _selectedJenisKupon = null;
+                      _selectedBulan = null;
+                      _selectedTahun = null;
+                    });
+                    provider.fetchKupons();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reset'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMasterKuponTable(BuildContext context) {
+
+
+    return Consumer<DashboardProvider>(
+      builder: (context, provider, _) {
+        final kupons = provider.kupons;
+        if (kupons.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Text('Data tidak ditemukan', style: TextStyle(fontSize: 18)),
+            ),
+          );
+        }
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('No.')),
+                  DataColumn(label: Text('Nomor Kupon')),
+                    DataColumn(label: Text('Satker')),
+                  DataColumn(label: Text('Jenis BBM')),
+                  DataColumn(label: Text('Jenis Kupon')),
+                  DataColumn(label: Text('NoPol')),
+                  DataColumn(label: Text('Bulan/Tahun')),
+                  DataColumn(label: Text('Kuota Sisa')),
+                  DataColumn(label: Text('Status')),
+                  DataColumn(label: Text('Detail')),
+                ],
+                rows: kupons.asMap().entries.map((entry) {
+                  final i = entry.key + 1;
+                  final k = entry.value;
+                    // Ambil kendaraan dari _kendaraanList
+                    final kendaraan = _kendaraanList.firstWhere(
+                      (kend) => kend.kendaraanId == k.kendaraanId,
+                      orElse: () => KendaraanModel(
+                        kendaraanId: 0,
+                        satkerId: 0,
+                        jenisRanmor: '-',
+                        noPolKode: '-',
+                        noPolNomor: '-',
+                      ),
+                    );
+                      // Ambil nama satker langsung dari kupon
+                      String satkerText = k.namaSatker;
+                  return DataRow(cells: [
+                    DataCell(Text(i.toString())),
+                    DataCell(Text(k.nomorKupon)),
+                      DataCell(Text(satkerText)),
+                    DataCell(Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString())),
+                    DataCell(Text(_jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId.toString())),
+                    DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
+                    DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
+                    DataCell(Text(k.kuotaSisa.toString())),
+                    DataCell(Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: k.status == 'available'
+                            ? Colors.blue
+                            : k.status == 'used'
+                            ? Colors.green
+                            : Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        k.status == 'available'
+                            ? 'Tersedia'
+                            : k.status == 'used'
+                            ? 'Digunakan'
+                            : 'Void',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    )),
+                  ]);
+                }).toList(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _exportToExcel(BuildContext context) async {
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    final kupons = provider.kupons;
+    if (kupons.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak ada data untuk diexport.')),
+      );
+      return;
+    }
+      final kendaraan = _kendaraanList.firstWhere(
+        (kend) => kend.kendaraanId == k.kendaraanId,
+        orElse: () => KendaraanModel(
+          kendaraanId: 0,
+          satkerId: 0,
+          jenisRanmor: '-',
+          noPolKode: '-',
+          noPolNomor: '-',
+        ),
+      );
+      sheet.appendRow([
+        IntCellValue(i + 1),
+        TextCellValue(k.nomorKupon),
+        TextCellValue(_jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId.toString()),
+        TextCellValue(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString()),
+        TextCellValue('${kendaraan.noPolNomor}-${kendaraan.noPolKode}'),
+        DoubleCellValue(k.kuotaAwal),
+        DoubleCellValue(k.kuotaSisa),
+        TextCellValue('${k.bulanTerbit}/${k.tahunTerbit}'),
+        TextCellValue(k.status),
+      ]);
+    }
+      // Hapus sheet default kosong jika ada
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+    // Save dialog
+    String? outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Simpan file Excel',
+      fileName: 'export_kupon_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+    );
+    if (outputPath == null) return;
+
+    final fileBytes = excel.encode();
+    if (fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gagal membuat file Excel.')),
+      );
+      return;
+    }
+    final file = File(outputPath);
+    await file.writeAsBytes(fileBytes, flush: true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Export berhasil: $outputPath')),
+    );
+  }
+}

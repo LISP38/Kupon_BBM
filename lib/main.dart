@@ -6,9 +6,12 @@ import 'package:kupon_bbm_app/core/themes/app_theme.dart';
 import 'package:kupon_bbm_app/data/datasources/excel_datasource.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository.dart';
+import 'package:kupon_bbm_app/domain/repositories/master_data_repository.dart';
 import 'package:kupon_bbm_app/presentation/pages/main_page.dart';
 import 'package:kupon_bbm_app/presentation/providers/dashboard_provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
+import 'package:kupon_bbm_app/presentation/providers/kupon_provider.dart';
+import 'package:kupon_bbm_app/presentation/providers/master_data_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/transaksi_provider.dart';
 import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
@@ -39,7 +42,12 @@ void main() async {
         ChangeNotifierProvider(
           create: (_) => TransaksiProvider(getIt<TransaksiRepositoryImpl>()),
         ),
-        // Daftarkan provider lain di sini nanti
+        ChangeNotifierProvider(
+          create: (_) => KuponProvider(getIt<KuponRepository>()),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => MasterDataProvider(getIt<MasterDataRepository>()),
+        ),
       ],
       child: const MyApp(),
     ),

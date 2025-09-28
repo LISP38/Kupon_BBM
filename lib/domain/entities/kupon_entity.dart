@@ -10,6 +10,7 @@ class KuponEntity {
   final String tanggalSampai;
   final double kuotaAwal;
   final double kuotaSisa;
+  final int satkerId;
   final String namaSatker;
   final String status;
   final String? createdAt;
@@ -28,6 +29,7 @@ class KuponEntity {
     required this.tanggalSampai,
     required this.kuotaAwal,
     required this.kuotaSisa,
+    required this.satkerId,
     required this.namaSatker,
     this.status = 'Aktif',
     this.createdAt,

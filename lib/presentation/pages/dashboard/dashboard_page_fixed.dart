@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/dashboard_provider.dart';
-import '../../providers/kupon_provider.dart';
-import '../../providers/master_data_provider.dart';
 import '../../providers/transaksi_provider.dart';
 import '../../../core/di/dependency_injection.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import '../../../domain/entities/kendaraan_entity.dart';
 import '../../../data/models/kendaraan_model.dart';
-import 'dashboard_actions.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -54,39 +51,21 @@ class _DashboardPageState extends State<DashboardPage> {
     _initData();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Get initial data
-    final kuponProvider = Provider.of<KuponProvider>(context, listen: false);
-    final masterDataProvider = Provider.of<MasterDataProvider>(
-      context,
-      listen: false,
-    );
-    final dashboardProvider = Provider.of<DashboardProvider>(
-      context,
-      listen: false,
-    );
-    final transaksiProvider = Provider.of<TransaksiProvider>(
-      context,
-      listen: false,
-    );
-
-    Future.wait([
-      kuponProvider.fetchKupons(),
-      masterDataProvider.fetchSatkers(),
-      dashboardProvider.fetchKupons(),
-      transaksiProvider.fetchTransaksiFiltered(),
-    ]);
-  }
-
   Future<void> _initData() async {
+    // Get kendaraan data
     final repo = getIt<KendaraanRepository>();
     final kendaraanList = await repo.getAllKendaraan();
     if (mounted) {
       setState(() {
         _kendaraanList = kendaraanList;
       });
+
+      // Get initial dashboard data after widget is mounted
+      Provider.of<DashboardProvider>(context, listen: false).fetchKupons();
+      Provider.of<TransaksiProvider>(
+        context,
+        listen: false,
+      ).fetchTransaksiFiltered();
     }
   }
 
@@ -148,14 +127,16 @@ class _DashboardPageState extends State<DashboardPage> {
                               setState(() {
                                 _selectedBulan = value;
                               });
-                              Provider.of<TransaksiProvider>(
-                                context,
-                                listen: false,
-                              ).setBulan(value!);
-                              Provider.of<TransaksiProvider>(
-                                context,
-                                listen: false,
-                              ).fetchTransaksiFiltered();
+                              if (value != null) {
+                                Provider.of<TransaksiProvider>(
+                                  context,
+                                  listen: false,
+                                ).setBulan(value);
+                                Provider.of<TransaksiProvider>(
+                                  context,
+                                  listen: false,
+                                ).fetchTransaksiFiltered();
+                              }
                             },
                           ),
                         ),
@@ -183,14 +164,16 @@ class _DashboardPageState extends State<DashboardPage> {
                               setState(() {
                                 _selectedTahun = value;
                               });
-                              Provider.of<TransaksiProvider>(
-                                context,
-                                listen: false,
-                              ).setTahun(value!);
-                              Provider.of<TransaksiProvider>(
-                                context,
-                                listen: false,
-                              ).fetchTransaksiFiltered();
+                              if (value != null) {
+                                Provider.of<TransaksiProvider>(
+                                  context,
+                                  listen: false,
+                                ).setTahun(value);
+                                Provider.of<TransaksiProvider>(
+                                  context,
+                                  listen: false,
+                                ).fetchTransaksiFiltered();
+                              }
                             },
                           ),
                         ),
@@ -255,14 +238,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildStatisticsCard() {
     return Consumer2<DashboardProvider, TransaksiProvider>(
-      builder: (context, dashboardProvider, transaksiProvider, child) {
-        final kupons = dashboardProvider.kupons;
-
-        final totalKupon = kupons.length;
-        final totalPertamax = kupons.where((k) => k.jenisBbmId == 1).length;
-        final totalDexlite = kupons.where((k) => k.jenisBbmId == 2).length;
-        final totalRanjen = kupons.where((k) => k.jenisKuponId == 1).length;
-        final totalDukungan = kupons.where((k) => k.jenisKuponId == 2).length;
+      builder: (context, dashboardProvider, transaksiProvider, _) {
+        final totalKupon = dashboardProvider.kupons.length;
+        final totalPertamax = dashboardProvider.kupons
+            .where((k) => k.jenisBbmId == 1)
+            .length;
+        final totalDexlite = dashboardProvider.kupons
+            .where((k) => k.jenisBbmId == 2)
+            .length;
+        final totalRanjen = dashboardProvider.kupons
+            .where((k) => k.jenisKuponId == 1)
+            .length;
+        final totalDukungan = dashboardProvider.kupons
+            .where((k) => k.jenisKuponId == 2)
+            .length;
         final totalTransaksi = transaksiProvider.transaksiList.length;
 
         return Card(
@@ -339,7 +328,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildTransaksiTable() {
+  Widget _buildTransaksiTable(BuildContext context) {
     return Consumer<TransaksiProvider>(
       builder: (context, provider, _) {
         final transaksi = provider.transaksiList;
@@ -356,59 +345,55 @@ class _DashboardPageState extends State<DashboardPage> {
           );
         }
 
-        return Card(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('Tanggal')),
-                DataColumn(label: Text('Nomor Kupon')),
-                DataColumn(label: Text('Jenis BBM')),
-                DataColumn(label: Text('Jumlah (L)')),
-                DataColumn(label: Text('Status')),
-              ],
-              rows: transaksi
-                  .map(
-                    (t) => DataRow(
-                      cells: [
-                        DataCell(Text(t.tanggalTransaksi)),
-                        DataCell(Text(t.nomorKupon)),
-                        DataCell(
-                          Text(
-                            t.jenisBbm == '1' ? 'Pertamax' : 'Pertamina Dex',
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Tanggal')),
+              DataColumn(label: Text('Nomor Kupon')),
+              DataColumn(label: Text('Jenis BBM')),
+              DataColumn(label: Text('Jumlah (L)')),
+              DataColumn(label: Text('Status')),
+            ],
+            rows: transaksi
+                .map(
+                  (t) => DataRow(
+                    cells: [
+                      DataCell(Text(t.tanggalTransaksi)),
+                      DataCell(Text(t.nomorKupon)),
+                      DataCell(
+                        Text(t.jenisBbm == '1' ? 'Pertamax' : 'Pertamina Dex'),
+                      ),
+                      DataCell(Text(t.jumlahDiambil.toString())),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: t.status == 'completed'
+                                ? Colors.green
+                                : Colors.blue,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            t.status == 'completed' ? 'Selesai' : 'Proses',
+                            style: const TextStyle(color: Colors.white),
                           ),
                         ),
-                        DataCell(Text(t.jumlahDiambil.toString())),
-                        DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: t.status == 'completed'
-                                  ? Colors.green
-                                  : Colors.blue,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              t.status == 'completed' ? 'Selesai' : 'Proses',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                  .toList(),
-            ),
+                      ),
+                    ],
+                  ),
+                )
+                .toList(),
           ),
         );
       },
     );
   }
 
-  Widget _buildMinusTable() {
+  Widget _buildMinusTable(BuildContext context) {
     return Consumer<TransaksiProvider>(
       builder: (context, provider, _) {
         final minusData = provider.kuponMinusList;
@@ -424,62 +409,60 @@ class _DashboardPageState extends State<DashboardPage> {
           );
         }
 
-        return Card(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              columns: const [
-                DataColumn(label: Text('No.')),
-                DataColumn(label: Text('NoPol')),
-                DataColumn(label: Text('Satker')),
-                DataColumn(label: Text('Jenis BBM')),
-                DataColumn(label: Text('Jumlah Minus')),
-                DataColumn(label: Text('Status')),
-              ],
-              rows: minusData.asMap().entries.map((entry) {
-                final i = entry.key + 1;
-                final m = entry.value;
-                return DataRow(
-                  cells: [
-                    DataCell(Text(i.toString())),
-                    DataCell(
-                      Text(_getNopolByKendaraanId(m['kendaraan_id'] as int)),
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('No.')),
+              DataColumn(label: Text('NoPol')),
+              DataColumn(label: Text('Satker')),
+              DataColumn(label: Text('Jenis BBM')),
+              DataColumn(label: Text('Jumlah Minus')),
+              DataColumn(label: Text('Status')),
+            ],
+            rows: minusData.asMap().entries.map((entry) {
+              final i = entry.key + 1;
+              final m = entry.value;
+              return DataRow(
+                cells: [
+                  DataCell(Text(i.toString())),
+                  DataCell(
+                    Text(_getNopolByKendaraanId(m['kendaraan_id'] as int)),
+                  ),
+                  DataCell(Text(m['nama_satker'] as String)),
+                  DataCell(
+                    Text(
+                      _jenisBBMMap[m['jenis_bbm_id'] as int] ??
+                          (m['jenis_bbm_id'] as int).toString(),
                     ),
-                    DataCell(Text(m['nama_satker'] as String)),
-                    DataCell(
-                      Text(
-                        _jenisBBMMap[m['jenis_bbm_id'] as int] ??
-                            (m['jenis_bbm_id'] as int).toString(),
+                  ),
+                  DataCell(Text((m['minus_amount'] as int).toString())),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'Minus',
+                        style: TextStyle(color: Colors.white),
                       ),
                     ),
-                    DataCell(Text((m['minus_amount'] as int).toString())),
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'Minus',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
+                  ),
+                ],
+              );
+            }).toList(),
           ),
         );
       },
     );
   }
 
-  Widget _buildMasterKuponTable() {
+  Widget _buildMasterKuponTable(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
         final kupons = provider.kupons;
@@ -494,74 +477,67 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           );
         }
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('No.')),
-                  DataColumn(label: Text('Nomor Kupon')),
-                  DataColumn(label: Text('Satker')),
-                  DataColumn(label: Text('Jenis BBM')),
-                  DataColumn(label: Text('Jenis Kupon')),
-                  DataColumn(label: Text('NoPol')),
-                  DataColumn(label: Text('Bulan/Tahun')),
-                  DataColumn(label: Text('Kuota Sisa')),
-                  DataColumn(label: Text('Status')),
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('No.')),
+              DataColumn(label: Text('Nomor Kupon')),
+              DataColumn(label: Text('Satker')),
+              DataColumn(label: Text('Jenis BBM')),
+              DataColumn(label: Text('Jenis Kupon')),
+              DataColumn(label: Text('NoPol')),
+              DataColumn(label: Text('Bulan/Tahun')),
+              DataColumn(label: Text('Kuota Sisa')),
+              DataColumn(label: Text('Status')),
+            ],
+            rows: kupons.asMap().entries.map((entry) {
+              final i = entry.key + 1;
+              final k = entry.value;
+              return DataRow(
+                cells: [
+                  DataCell(Text(i.toString())),
+                  DataCell(Text(k.nomorKupon)),
+                  DataCell(Text(k.namaSatker)),
+                  DataCell(
+                    Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString()),
+                  ),
+                  DataCell(
+                    Text(
+                      _jenisKuponMap[k.jenisKuponId] ??
+                          k.jenisKuponId.toString(),
+                    ),
+                  ),
+                  DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
+                  DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
+                  DataCell(Text(k.kuotaSisa.toString())),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: k.status == 'available'
+                            ? Colors.blue
+                            : k.status == 'used'
+                            ? Colors.green
+                            : Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        k.status == 'available'
+                            ? 'Tersedia'
+                            : k.status == 'used'
+                            ? 'Digunakan'
+                            : 'Void',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
                 ],
-                rows: kupons.asMap().entries.map((entry) {
-                  final i = entry.key + 1;
-                  final k = entry.value;
-                  return DataRow(
-                    cells: [
-                      DataCell(Text(i.toString())),
-                      DataCell(Text(k.nomorKupon)),
-                      DataCell(Text(k.namaSatker)),
-                      DataCell(
-                        Text(
-                          _jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString(),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          _jenisKuponMap[k.jenisKuponId] ??
-                              k.jenisKuponId.toString(),
-                        ),
-                      ),
-                      DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
-                      DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
-                      DataCell(Text(k.kuotaSisa.toString())),
-                      DataCell(
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: k.status == 'available'
-                                ? Colors.blue
-                                : k.status == 'used'
-                                ? Colors.green
-                                : Colors.red,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            k.status == 'available'
-                                ? 'Tersedia'
-                                : k.status == 'used'
-                                ? 'Digunakan'
-                                : 'Void',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
+              );
+            }).toList(),
           ),
         );
       },
@@ -584,13 +560,48 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildFilterSection(),
             const SizedBox(height: 16),
             // Transaction Buttons
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: DashboardActions(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      // TODO: Implement Pertamax transaction
+                    },
+                    icon: const Icon(Icons.local_gas_station),
+                    label: const Text('Pertamax'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      // TODO: Implement Dexlite transaction
+                    },
+                    icon: const Icon(Icons.local_gas_station),
+                    label: const Text('Dexlite'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             // Tables Section - Transaction and Kupon
-            SizedBox(
+            Container(
               height: 400,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,7 +638,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               ],
                             ),
                           ),
-                          Expanded(child: _buildTransaksiTable()),
+                          Expanded(child: _buildTransaksiTable(context)),
                         ],
                       ),
                     ),
@@ -649,7 +660,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                             ),
                           ),
-                          Expanded(child: _buildMasterKuponTable()),
+                          Expanded(child: _buildMasterKuponTable(context)),
                         ],
                       ),
                     ),
@@ -659,7 +670,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             // Minus Table
-            SizedBox(
+            Container(
               height: 300,
               child: Card(
                 child: Column(
@@ -691,7 +702,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         ],
                       ),
                     ),
-                    Expanded(child: _buildMinusTable()),
+                    Expanded(child: _buildMinusTable(context)),
                   ],
                 ),
               ),
