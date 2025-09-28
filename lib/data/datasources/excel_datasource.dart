@@ -55,10 +55,6 @@ class ExcelDatasource {
     final kupons = <KuponModel>[];
     final newKendaraans = <KendaraanModel>[];
     final validationMessages = <String>[];
-    final Map<String, int> kendaraanBBMCount =
-        {}; // Track jenis BBM per kendaraan
-    final Map<String, Map<int, int>> kendaraanKuponCount =
-        {}; // Track kupon per kendaraan per bulan
 
     // Hanya ambil sheet pertama
     if (excel.tables.isEmpty) {

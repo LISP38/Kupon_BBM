@@ -7,6 +7,7 @@ class TransaksiProvider extends ChangeNotifier {
 
   List<TransaksiEntity> _transaksiList = [];
   List<Map<String, dynamic>> _kuponMinusList = [];
+  bool _showDeleted = false;
 
   int? filterBulan;
   int? filterTahun;
@@ -19,27 +20,26 @@ class TransaksiProvider extends ChangeNotifier {
 
   List<TransaksiEntity> get transaksiList => _transaksiList;
   List<Map<String, dynamic>> get kuponMinusList => _kuponMinusList;
+  bool get showDeleted => _showDeleted;
+
+  void setShowDeleted(bool value) {
+    _showDeleted = value;
+    notifyListeners();
+  }
+
+  Future<void> fetchDeletedTransaksi() async {
+    _transaksiList = await _transaksiRepository.getAllTransaksi(isDeleted: 1);
+    notifyListeners();
+  }
+
+  Future<void> restoreTransaksi(int transaksiId) async {
+    await _transaksiRepository.restoreTransaksi(transaksiId);
+    await fetchDeletedTransaksi();
+  }
 
   Future<void> fetchTransaksi() async {
     _transaksiList = await _transaksiRepository.getAllTransaksi();
     notifyListeners();
-  }
-
-  Future<bool> createTransaksi({
-    required int kuponId,
-    required double jumlahLiter,
-  }) async {
-    final success = await _transaksiRepository.createTransaksi(
-      kuponId: kuponId,
-      jumlahLiter: jumlahLiter,
-    );
-
-    if (success) {
-      // Refresh data after successful transaction
-      await fetchTransaksiFiltered();
-    }
-
-    return success;
   }
 
   Future<void> fetchTransaksiFiltered() async {
@@ -65,6 +65,18 @@ class TransaksiProvider extends ChangeNotifier {
     await fetchKuponMinus();
   }
 
+  Future<void> updateTransaksi(TransaksiEntity transaksi) async {
+    await _transaksiRepository.updateTransaksi(transaksi);
+    await fetchTransaksiFiltered();
+    await fetchKuponMinus();
+  }
+
+  Future<void> deleteTransaksi(int transaksiId) async {
+    await _transaksiRepository.deleteTransaksi(transaksiId);
+    await fetchTransaksiFiltered();
+    await fetchKuponMinus();
+  }
+
   void setBulan(int bulan) {
     filterBulan = bulan;
     notifyListeners();
@@ -83,18 +95,6 @@ class TransaksiProvider extends ChangeNotifier {
     filterSatker = null;
     filterJenisBbmId = null;
     notifyListeners();
-  }
-
-  Future<void> updateTransaksi(TransaksiEntity transaksi) async {
-    await _transaksiRepository.updateTransaksi(transaksi);
-    await fetchTransaksiFiltered();
-    await fetchKuponMinus();
-  }
-
-  Future<void> deleteTransaksi(int transaksiId) async {
-    await _transaksiRepository.deleteTransaksi(transaksiId);
-    await fetchTransaksiFiltered();
-    await fetchKuponMinus();
   }
 
   void setFilterTransaksi({

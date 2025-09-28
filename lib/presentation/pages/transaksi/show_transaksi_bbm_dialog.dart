@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:kupon_bbm_app/domain/entities/transaksi_entity.dart';
 import 'transaksi_bbm_form_new.dart';
 
 Future<Map<String, dynamic>?> showTransaksiBBMDialog({
   required BuildContext context,
   required int jenisBbmId,
   required String jenisBbmName,
+  bool editMode = false,
+  TransaksiEntity? initialData,
 }) {
   return showDialog<Map<String, dynamic>>(
     context: context,
@@ -24,7 +27,9 @@ Future<Map<String, dynamic>?> showTransaksiBBMDialog({
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Transaksi BBM - $jenisBbmName',
+                    editMode
+                        ? 'Edit Transaksi BBM - $jenisBbmName'
+                        : 'Transaksi BBM - $jenisBbmName',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -45,6 +50,8 @@ Future<Map<String, dynamic>?> showTransaksiBBMDialog({
                   child: TransaksiBBMForm(
                     jenisBbmId: jenisBbmId,
                     jenisBbmName: jenisBbmName,
+                    editMode: editMode,
+                    initialData: initialData,
                   ),
                 ),
               ),

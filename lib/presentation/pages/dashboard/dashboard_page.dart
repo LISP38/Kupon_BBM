@@ -5,10 +5,14 @@ import '../../providers/kupon_provider.dart';
 import '../../providers/master_data_provider.dart';
 import '../../providers/transaksi_provider.dart';
 import '../../../core/di/dependency_injection.dart';
-import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
+import '../../../domain/repositories/kendaraan_repository.dart';
 import '../../../domain/entities/kendaraan_entity.dart';
+import '../../../domain/entities/transaksi_entity.dart';
 import '../../../data/models/kendaraan_model.dart';
 import 'dashboard_actions.dart';
+import '../transaksi/show_detail_transaksi_dialog.dart';
+import '../transaksi/show_delete_transaksi_dialog.dart';
+import '../transaksi/show_transaksi_bbm_dialog.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -87,6 +91,84 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() {
         _kendaraanList = kendaraanList;
       });
+    }
+  }
+
+  Future<void> _showDetailTransaksi(
+    BuildContext context,
+    TransaksiEntity transaksi,
+  ) async {
+    await showDetailTransaksiDialog(context: context, transaksi: transaksi);
+  }
+
+  Future<void> _showEditTransaksi(
+    BuildContext context,
+    TransaksiEntity transaksi,
+  ) async {
+    final result = await showTransaksiBBMDialog(
+      context: context,
+      jenisBbmId: transaksi.jenisBbmId,
+      jenisBbmName: transaksi.jenisBbmId == 1 ? 'Pertamax' : 'Pertamina Dex',
+      editMode: true,
+      initialData: transaksi,
+    );
+
+    if (result != null && context.mounted) {
+      try {
+        final provider = Provider.of<TransaksiProvider>(context, listen: false);
+        await provider.updateTransaksi(result['transaksi'] as TransaksiEntity);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Transaksi berhasil diperbarui'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Gagal memperbarui transaksi: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showDeleteConfirmation(
+    BuildContext context,
+    TransaksiEntity transaksi,
+  ) async {
+    final confirmed = await showDeleteTransaksiDialog(
+      context: context,
+      transaksi: transaksi,
+    );
+
+    if (confirmed == true && context.mounted) {
+      try {
+        final provider = Provider.of<TransaksiProvider>(context, listen: false);
+        await provider.deleteTransaksi(transaksi.transaksiId);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Transaksi berhasil dihapus'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Gagal menghapus transaksi: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -365,7 +447,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 DataColumn(label: Text('Nomor Kupon')),
                 DataColumn(label: Text('Jenis BBM')),
                 DataColumn(label: Text('Jumlah (L)')),
-                DataColumn(label: Text('Status')),
+                DataColumn(label: Text('Aksi')),
               ],
               rows: transaksi
                   .map(
@@ -375,26 +457,32 @@ class _DashboardPageState extends State<DashboardPage> {
                         DataCell(Text(t.nomorKupon)),
                         DataCell(
                           Text(
-                            t.jenisBbm == '1' ? 'Pertamax' : 'Pertamina Dex',
+                            t.jenisBbmId == 1 ? 'Pertamax' : 'Pertamina Dex',
                           ),
                         ),
-                        DataCell(Text(t.jumlahDiambil.toString())),
+                        DataCell(Text(t.jumlahLiter.toString())),
                         DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: t.status == 'completed'
-                                  ? Colors.green
-                                  : Colors.blue,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              t.status == 'completed' ? 'Selesai' : 'Proses',
-                              style: const TextStyle(color: Colors.white),
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.info),
+                                color: Colors.blue,
+                                onPressed: () =>
+                                    _showDetailTransaksi(context, t),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit),
+                                color: Colors.orange,
+                                onPressed: () => _showEditTransaksi(context, t),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete),
+                                color: Colors.red,
+                                onPressed: () =>
+                                    _showDeleteConfirmation(context, t),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -589,72 +677,42 @@ class _DashboardPageState extends State<DashboardPage> {
               child: DashboardActions(),
             ),
             const SizedBox(height: 16),
-            // Tables Section - Transaction and Kupon
+            // Transaction Table
             SizedBox(
               height: 400,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Transaction Table
-                  Expanded(
-                    child: Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Card(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Data Transaksi BBM',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    // TODO: Implement export
-                                  },
-                                  icon: const Icon(Icons.download),
-                                  label: const Text('Export'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                ),
-                              ],
+                          const Text(
+                            'Data Transaksi BBM',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          Expanded(child: _buildTransaksiTable()),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              // TODO: Implement export
+                            },
+                            icon: const Icon(Icons.download),
+                            label: const Text('Export'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Kupon Table
-                  Expanded(
-                    child: Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Text(
-                              'Data Kupon',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Expanded(child: _buildMasterKuponTable()),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                    Expanded(child: _buildTransaksiTable()),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),

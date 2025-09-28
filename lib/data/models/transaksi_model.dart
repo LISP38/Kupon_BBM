@@ -2,50 +2,52 @@ import '../../domain/entities/transaksi_entity.dart';
 
 class TransaksiModel extends TransaksiEntity {
   const TransaksiModel({
-    required super.purchasingId,
+    required super.transaksiId,
     required super.kuponId,
     required super.nomorKupon,
-    required super.kendaraanId,
-    required super.satkerId,
+    required super.namaSatker,
     required super.jenisBbmId,
-    required super.jenisKuponId,
     required super.tanggalTransaksi,
-    required super.jumlahDiambil,
-    super.keterangan,
-    super.createdAt,
+    required super.jumlahLiter,
+    required super.createdAt,
+    super.updatedAt,
     super.isDeleted = 0,
-    super.deletedAt,
+    super.jumlahDiambil = 0,
+    super.status = 'Aktif',
+    super.kuponCreatedAt,
+    super.kuponExpiredAt,
   });
 
   factory TransaksiModel.fromMap(Map<String, dynamic> map) {
     return TransaksiModel(
-      purchasingId: map['purchasing_id'] as int,
+      transaksiId: map['transaksi_id'] as int,
       kuponId: map['kupon_id'] as int,
-      nomorKupon: map['nomor_kupon'] as String,
-      kendaraanId: map['kendaraan_id'] as int,
-      satkerId: map['satker_id'] as int,
-      jenisBbmId: map['jenis_bbm_id'] as int,
-      jenisKuponId: map['jenis_kupon_id'] as int,
+      nomorKupon: (map['kupon_nomor'] ?? map['nomor_kupon']) as String,
+      namaSatker: (map['kupon_satker'] ?? map['nama_satker']) as String,
+      jenisBbmId: (map['kupon_jenis_bbm'] ?? map['jenis_bbm_id']) as int,
       tanggalTransaksi: map['tanggal_transaksi'] as String,
-      jumlahDiambil: (map['jumlah_diambil'] as num).toDouble(),
-      keterangan: map['keterangan'] as String?,
-      createdAt: map['created_at'] as String?,
+      jumlahLiter: (map['jumlah_liter'] as num).toDouble(),
+      createdAt: map['created_at'] as String,
+      updatedAt: map['updated_at'] as String? ?? map['created_at'] as String,
       isDeleted: map['is_deleted'] as int? ?? 0,
-      deletedAt: map['deleted_at'] as String?,
+      jumlahDiambil: map['jumlah_diambil'] as int? ?? 0,
+      status: map['status'] as String? ?? 'pending',
+      kuponCreatedAt: map['kupon_created_at'] as String?,
+      kuponExpiredAt: map['kupon_expired_at'] as String?,
     );
   }
 
-  get transaksiId => null;
-
   Map<String, dynamic> toMap() {
     return {
-      'purchasing_id': purchasingId,
+      'transaksi_id': transaksiId,
       'kupon_id': kuponId,
+      'jumlah_liter': jumlahLiter,
       'tanggal_transaksi': tanggalTransaksi,
-      'jumlah_diambil': jumlahDiambil,
       'created_at': createdAt,
+      'updated_at': updatedAt,
       'is_deleted': isDeleted,
-      'deleted_at': deletedAt,
+      'jumlah_diambil': jumlahDiambil,
+      'status': status,
     };
   }
 }

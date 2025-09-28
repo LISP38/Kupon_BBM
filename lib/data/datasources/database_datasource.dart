@@ -96,10 +96,8 @@ class DatabaseDatasource {
         nama_satker TEXT NOT NULL
       );
     ''');
-    batch.execute('''
-      INSERT OR IGNORE INTO dim_satker (satker_id, nama_satker)
-      VALUES (1, 'KAPOLDA');
-    ''');
+    // Note: Satker data will be populated in _seedMasterData
+
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_jenis_bbm (
         jenis_bbm_id INTEGER PRIMARY KEY,
@@ -143,6 +141,7 @@ class DatabaseDatasource {
   tanggal_sampai TEXT NOT NULL,
   kuota_awal REAL NOT NULL,
   kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
+  satker_id INTEGER NOT NULL,
   nama_satker TEXT NOT NULL,
   status TEXT DEFAULT 'Aktif',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -151,19 +150,25 @@ class DatabaseDatasource {
         FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id)
           ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),
-        FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id)
+        FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id),
+        FOREIGN KEY (satker_id) REFERENCES dim_satker(satker_id)
+          ON DELETE RESTRICT ON UPDATE CASCADE
       );
     ''');
 
     batch.execute('''
-      CREATE TABLE IF NOT EXISTS fact_purchasing (
-        purchasing_id INTEGER PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS fact_transaksi (
+        transaksi_id INTEGER PRIMARY KEY AUTOINCREMENT,
         kupon_id INTEGER NOT NULL,
+        nomor_kupon TEXT NOT NULL,
+        nama_satker TEXT NOT NULL,
+        jenis_bbm_id INTEGER NOT NULL,
+        jumlah_liter REAL NOT NULL,
         tanggal_transaksi TEXT NOT NULL,
-        jumlah_diambil REAL NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         is_deleted INTEGER DEFAULT 0,
-        deleted_at TEXT,
+        status TEXT DEFAULT 'Aktif',
         FOREIGN KEY (kupon_id) REFERENCES fact_kupon(kupon_id) ON DELETE CASCADE
       );
     ''');
@@ -179,7 +184,7 @@ class DatabaseDatasource {
       'CREATE INDEX IF NOT EXISTS idx_kupon_status ON fact_kupon(status);',
     );
     batch.execute(
-      'CREATE INDEX IF NOT EXISTS idx_purchasing_kupon ON fact_purchasing(kupon_id);',
+      'CREATE INDEX IF NOT EXISTS idx_transaksi_kupon ON fact_transaksi(kupon_id);',
     );
 
     await batch.commit(noResult: true);

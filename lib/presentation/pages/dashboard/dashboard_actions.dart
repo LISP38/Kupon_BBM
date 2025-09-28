@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../data/models/transaksi_model.dart';
 import '../../../domain/entities/kupon_entity.dart';
 import '../../providers/transaksi_provider.dart';
 import '../transaksi/show_transaksi_bbm_dialog.dart';
+import '../transaksi/deleted_transaksi_page.dart';
 
 class DashboardActions extends StatelessWidget {
   const DashboardActions({Key? key}) : super(key: key);
@@ -20,27 +22,48 @@ class DashboardActions extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            Row(
+            Column(
               children: [
-                Expanded(
-                  child: _buildActionButton(
-                    context: context,
-                    icon: Icons.local_gas_station,
-                    label: 'Transaksi Pertamax',
-                    color: Colors.blue,
-                    jenisBbmId: 1,
-                    jenisBbmName: 'Pertamax',
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildActionButton(
+                        context: context,
+                        icon: Icons.local_gas_station,
+                        label: 'Transaksi Pertamax',
+                        color: Colors.blue,
+                        jenisBbmId: 1,
+                        jenisBbmName: 'Pertamax',
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildActionButton(
+                        context: context,
+                        icon: Icons.local_gas_station,
+                        label: 'Transaksi Dex',
+                        color: Colors.green,
+                        jenisBbmId: 2,
+                        jenisBbmName: 'Pertamina Dex',
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildActionButton(
-                    context: context,
-                    icon: Icons.local_gas_station,
-                    label: 'Transaksi Dex',
-                    color: Colors.green,
-                    jenisBbmId: 2,
-                    jenisBbmName: 'Pertamina Dex',
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showDeletedTransaksi(context),
+                    icon: const Icon(Icons.restore_from_trash),
+                    label: const Text('Lihat Transaksi Terhapus'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[700],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -87,13 +110,29 @@ class DashboardActions extends StatelessWidget {
       final jumlahLiter = result['jumlahLiter'] as double;
 
       // Process the transaction
-      final success = await Provider.of<TransaksiProvider>(
-        context,
-        listen: false,
-      ).createTransaksi(kuponId: kupon.kuponId, jumlahLiter: jumlahLiter);
+      try {
+        final now = DateTime.now().toIso8601String();
+        await Provider.of<TransaksiProvider>(
+          context,
+          listen: false,
+        ).addTransaksi(
+          TransaksiModel(
+            transaksiId: 0,
+            kuponId: kupon.kuponId,
+            nomorKupon: kupon.nomorKupon,
+            namaSatker: kupon.namaSatker,
+            jenisBbmId: jenisBbmId,
+            tanggalTransaksi: now.substring(0, 10),
+            jumlahLiter: jumlahLiter,
+            createdAt: now,
+            updatedAt: now,
+            isDeleted: 0,
+            jumlahDiambil: jumlahLiter.toInt(),
+            status: 'pending',
+          ),
+        );
 
-      if (context.mounted) {
-        if (success) {
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Transaksi berhasil disimpan'),
@@ -106,15 +145,24 @@ class DashboardActions extends StatelessWidget {
             context,
             listen: false,
           ).fetchTransaksiFiltered();
-        } else {
+        }
+      } catch (e) {
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Gagal menyimpan transaksi'),
+            SnackBar(
+              content: Text('Gagal menyimpan transaksi: $e'),
               backgroundColor: Colors.red,
             ),
           );
         }
       }
     }
+  }
+
+  void _showDeletedTransaksi(BuildContext context) {
+    Provider.of<TransaksiProvider>(context, listen: false).setShowDeleted(true);
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const DeletedTransaksiPage()),
+    );
   }
 }

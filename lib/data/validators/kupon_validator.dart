@@ -1,5 +1,4 @@
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
-import 'package:kupon_bbm_app/data/models/kendaraan_model.dart';
 import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 
 class KuponValidationResult {
@@ -93,7 +92,8 @@ class KuponValidator {
       if (parts.length >= 2) {
         final kode = parts[0];
         final nomor = parts[1];
-        final existingKendaraan = await _kendaraanRepository.findKendaraanByNoPol(kode, nomor);
+        final existingKendaraan = await _kendaraanRepository
+            .findKendaraanByNoPol(kode, nomor);
         if (existingKendaraan != null) {
           tempKendaraanId = existingKendaraan.kendaraanId;
         }
@@ -101,7 +101,12 @@ class KuponValidator {
     }
 
     // Validasi jenis BBM
-    final bbmResult = validateBBMPerKendaraan(existingKupons, newKupon, noPol, tempKendaraanId);
+    final bbmResult = validateBBMPerKendaraan(
+      existingKupons,
+      newKupon,
+      noPol,
+      tempKendaraanId,
+    );
     if (!bbmResult.isValid) {
       allMessages.addAll(bbmResult.messages);
     }

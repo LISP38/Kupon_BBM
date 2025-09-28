@@ -16,14 +16,19 @@ import 'package:provider/provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/transaksi_provider.dart';
 import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
-  // Initialize dependencies
-  await initializeDependencies();
+  // Initialize dependencies and localization
+  await Future.wait([
+    initializeDependencies(),
+    initializeDateFormatting('id_ID'),
+  ]);
 
   // Run app with providers
   runApp(
@@ -65,6 +70,15 @@ class MyApp extends StatelessWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.light,
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('id', 'ID'), // Indonesian
+      ],
+      locale: const Locale('id', 'ID'),
       home: const MainPage(),
     );
   }
