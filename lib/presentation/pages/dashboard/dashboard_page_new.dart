@@ -310,6 +310,33 @@ class _DashboardPageState extends State<DashboardPage> {
                             context,
                             listen: false,
                           ).fetchTransaksiFiltered();
+                          Provider.of<DashboardProvider>(
+                            context,
+                            listen: false,
+                          ).fetchKupons();
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reset'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[300],
+                          foregroundColor: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedBulan = null;
+                            _selectedTahun = null;
+                          });
+                          Provider.of<TransaksiProvider>(
+                            context,
+                            listen: false,
+                          ).resetFilter();
+                          Provider.of<TransaksiProvider>(
+                            context,
+                            listen: false,
+                          ).fetchTransaksiFiltered();
                           Provider.of<TransaksiProvider>(
                             context,
                             listen: false,

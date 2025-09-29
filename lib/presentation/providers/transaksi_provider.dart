@@ -6,19 +6,17 @@ class TransaksiProvider extends ChangeNotifier {
   final TransaksiRepositoryImpl _transaksiRepository;
 
   List<TransaksiEntity> _transaksiList = [];
+  List<TransaksiEntity> _deletedTransaksiList = [];
   List<Map<String, dynamic>> _kuponMinusList = [];
   bool _showDeleted = false;
 
   int? filterBulan;
   int? filterTahun;
-  int? filterHari;
-  String? filterNomorKupon;
-  String? filterSatker;
-  int? filterJenisBbmId;
 
   TransaksiProvider(this._transaksiRepository);
 
   List<TransaksiEntity> get transaksiList => _transaksiList;
+  List<TransaksiEntity> get deletedTransaksiList => _deletedTransaksiList;
   List<Map<String, dynamic>> get kuponMinusList => _kuponMinusList;
   bool get showDeleted => _showDeleted;
 
@@ -28,13 +26,16 @@ class TransaksiProvider extends ChangeNotifier {
   }
 
   Future<void> fetchDeletedTransaksi() async {
-    _transaksiList = await _transaksiRepository.getAllTransaksi(isDeleted: 1);
+    _deletedTransaksiList = await _transaksiRepository.getAllTransaksi(
+      isDeleted: 1,
+    );
     notifyListeners();
   }
 
   Future<void> restoreTransaksi(int transaksiId) async {
     await _transaksiRepository.restoreTransaksi(transaksiId);
     await fetchDeletedTransaksi();
+    await fetchTransaksiFiltered(); // Refresh active transactions list
   }
 
   Future<void> fetchTransaksi() async {
@@ -46,10 +47,6 @@ class TransaksiProvider extends ChangeNotifier {
     _transaksiList = await _transaksiRepository.getAllTransaksi(
       bulan: filterBulan,
       tahun: filterTahun,
-      hari: filterHari,
-      nomorKupon: filterNomorKupon,
-      satker: filterSatker,
-      jenisBbmId: filterJenisBbmId,
     );
     notifyListeners();
   }
@@ -90,27 +87,12 @@ class TransaksiProvider extends ChangeNotifier {
   void resetFilter() {
     filterBulan = null;
     filterTahun = null;
-    filterHari = null;
-    filterNomorKupon = null;
-    filterSatker = null;
-    filterJenisBbmId = null;
     notifyListeners();
   }
 
-  void setFilterTransaksi({
-    int? hari,
-    int? bulan,
-    int? tahun,
-    String? nomorKupon,
-    String? satker,
-    int? jenisBbmId,
-  }) {
-    filterHari = hari ?? filterHari;
+  void setFilterTransaksi({int? bulan, int? tahun}) {
     filterBulan = bulan ?? filterBulan;
     filterTahun = tahun ?? filterTahun;
-    filterNomorKupon = nomorKupon ?? filterNomorKupon;
-    filterSatker = satker ?? filterSatker;
-    filterJenisBbmId = jenisBbmId ?? filterJenisBbmId;
     fetchTransaksiFiltered();
   }
 }

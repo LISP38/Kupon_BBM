@@ -2,6 +2,7 @@ import 'package:kupon_bbm_app/data/datasources/database_datasource.dart';
 import 'package:kupon_bbm_app/data/models/transaksi_model.dart';
 import 'package:kupon_bbm_app/domain/entities/transaksi_entity.dart';
 import 'package:kupon_bbm_app/domain/repositories/transaksi_repository.dart';
+import 'package:sqflite/sqflite.dart';
 
 class TransaksiRepositoryImpl implements TransaksiRepository {
   final DatabaseDatasource dbHelper;
@@ -12,325 +13,300 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
   Future<List<TransaksiEntity>> getAllTransaksi({
     int? bulan,
     int? tahun,
-    int? hari,
-    String? nomorKupon,
-    String? satker,
-    int? jenisBbmId,
     int? isDeleted,
   }) async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
 
-    String where = 't.is_deleted = ?';
-    List<dynamic> whereArgs = [isDeleted ?? 0];
+      String where = 't.is_deleted = ?';
+      List<dynamic> whereArgs = [isDeleted ?? 0];
 
-    if (bulan != null) {
-      where += ' AND strftime("%m", t.tanggal_transaksi) = ?';
-      whereArgs.add(bulan.toString().padLeft(2, '0'));
-    }
-    if (tahun != null) {
-      where += ' AND strftime("%Y", t.tanggal_transaksi) = ?';
-      whereArgs.add(tahun.toString());
-    }
-    if (hari != null) {
-      where += ' AND strftime("%d", t.tanggal_transaksi) = ?';
-      whereArgs.add(hari.toString().padLeft(2, '0'));
-    }
-    if (nomorKupon != null && nomorKupon.isNotEmpty) {
-      where += ' AND t.nomor_kupon LIKE ?';
-      whereArgs.add('%$nomorKupon%');
-    }
-    if (satker != null && satker.isNotEmpty) {
-      where += ' AND t.nama_satker LIKE ?';
-      whereArgs.add('%$satker%');
-    }
-    if (jenisBbmId != null) {
-      where += ' AND t.jenis_bbm_id = ?';
-      whereArgs.add(jenisBbmId);
-    }
+      if (bulan != null) {
+        where += ' AND strftime("%m", t.tanggal_transaksi) = ?';
+        whereArgs.add(bulan.toString().padLeft(2, '0'));
+      }
+      if (tahun != null) {
+        where += ' AND strftime("%Y", t.tanggal_transaksi) = ?';
+        whereArgs.add(tahun.toString());
+      }
 
-    final result = await db.rawQuery('''
-      SELECT 
-        t.*,
-        k.nomor_kupon as kupon_nomor,
-        k.nama_satker as kupon_satker,
-        k.jenis_bbm_id as kupon_jenis_bbm,
-        date(substr(k.created_at, 1, 4) || '-' || substr(k.created_at, 6, 2) || '-01') as kupon_created_at,
-        date(date(substr(k.created_at, 1, 4) || '-' || substr(k.created_at, 6, 2) || '-01'), '+2 months', '-1 day') as kupon_expired_at
-      FROM fact_transaksi t
-      JOIN fact_kupon k ON t.kupon_id = k.kupon_id
-      WHERE $where AND k.is_deleted = 0
-      ORDER BY t.created_at DESC
-    ''', whereArgs);
+      final result = await db.rawQuery('''
+        SELECT 
+          t.*,
+          k.satker_id,
+          k.jenis_kupon_id,
+          k.bulan_terbit,
+          k.tahun_terbit,
+          k.kuota_awal,
+          k.kuota_sisa,
+          k.status as status_kupon,
+          k.created_at as kupon_created_at,
+          k.updated_at as kupon_updated_at
+        FROM fact_transaksi t
+        LEFT JOIN fact_kupon k ON t.kupon_id = k.kupon_id
+        WHERE $where AND k.is_deleted = 0
+        ORDER BY t.tanggal_transaksi DESC, t.created_at DESC
+      ''', whereArgs);
 
-    return result.map((map) => TransaksiModel.fromMap(map)).toList();
+      return result.map((map) => TransaksiModel.fromMap(map)).toList();
+    } catch (e) {
+      throw Exception('Failed to get all transaksi: $e');
+    }
   }
 
   @override
   Future<TransaksiEntity?> getTransaksiById(int transaksiId) async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
+      final result = await db.rawQuery(
+        '''
+        SELECT 
+          t.*,
+          k.satker_id,
+          k.jenis_kupon_id,
+          k.bulan_terbit,
+          k.tahun_terbit,
+          k.kuota_awal,
+          k.kuota_sisa,
+          k.status as status_kupon,
+          k.created_at as kupon_created_at,
+          k.updated_at as kupon_updated_at
+        FROM fact_transaksi t
+        LEFT JOIN fact_kupon k ON t.kupon_id = k.kupon_id
+        WHERE t.transaksi_id = ? AND t.is_deleted = 0
+      ''',
+        [transaksiId],
+      );
 
-    final result = await db.rawQuery(
-      '''
-      SELECT t.*, k.nomor_kupon, k.nama_satker, k.jenis_bbm_id
-      FROM fact_transaksi t
-      JOIN fact_kupon k ON t.kupon_id = k.kupon_id
-      WHERE t.transaksi_id = ? AND t.is_deleted = 0
-    ''',
-      [transaksiId],
-    );
+      if (result.isEmpty) {
+        return null;
+      }
 
-    if (result.isEmpty) {
-      return null;
+      return TransaksiModel.fromMap(result.first);
+    } catch (e) {
+      throw Exception('Failed to get transaksi by id: $e');
     }
-
-    return TransaksiModel.fromMap(result.first);
   }
 
   @override
   Future<void> insertTransaksi(TransaksiEntity transaksi) async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
+      await db.transaction((txn) async {
+        // Insert transaksi
+        await txn.insert(
+          'fact_transaksi',
+          (transaksi as TransaksiModel).toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
 
-    await db.transaction((txn) async {
-      // 1. Get kupon info
-      final kuponResult = await txn.query(
-        'fact_kupon',
-        where: 'kupon_id = ?',
-        whereArgs: [transaksi.kuponId],
-      );
-
-      if (kuponResult.isEmpty) {
-        throw Exception('Kupon tidak ditemukan');
-      }
-
-      final kupon = kuponResult.first;
-      final kuotaSisa = (kupon['kuota_sisa'] as num).toDouble();
-
-      // if (kuotaSisa < transaksi.jumlahLiter) {
-      //   throw Exception('Jumlah liter melebihi sisa kuota');
-      // }
-
-      // 2. Insert new transaction
-      await txn.insert('fact_transaksi', {
-        'kupon_id': transaksi.kuponId,
-        'nomor_kupon': transaksi.nomorKupon,
-        'nama_satker': transaksi.namaSatker,
-        'jenis_bbm_id': transaksi.jenisBbmId,
-        'jumlah_liter': transaksi.jumlahLiter,
-        'tanggal_transaksi': transaksi.tanggalTransaksi,
-        'created_at': transaksi.createdAt,
-        'updated_at': transaksi.createdAt,
-        'is_deleted': 0,
-        'status': transaksi.status ?? 'pending',
+        // Update kuota_sisa in fact_kupon
+        await txn.rawUpdate(
+          '''
+          UPDATE fact_kupon 
+          SET kuota_sisa = kuota_sisa - ?,
+              updated_at = DATETIME('now', 'localtime')
+          WHERE kupon_id = ?
+        ''',
+          [transaksi.jumlahLiter, transaksi.kuponId],
+        );
       });
-
-      // 3. Update kupon sisa
-      final newKuotaSisa = kuotaSisa - transaksi.jumlahLiter;
-      await txn.update(
-        'fact_kupon',
-        {
-          'kuota_sisa': newKuotaSisa,
-          'status': newKuotaSisa > 0 ? 'Aktif' : 'Habis',
-          'updated_at': transaksi.createdAt,
-        },
-        where: 'kupon_id = ?',
-        whereArgs: [transaksi.kuponId],
-      );
-    });
+    } catch (e) {
+      throw Exception('Failed to insert transaksi: $e');
+    }
   }
 
   @override
   Future<void> updateTransaksi(TransaksiEntity transaksi) async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
+      await db.transaction((txn) async {
+        // Get old transaksi data
+        final oldTransaksi = await txn.query(
+          'fact_transaksi',
+          where: 'transaksi_id = ?',
+          whereArgs: [transaksi.transaksiId],
+        );
 
-    await db.transaction((txn) async {
-      // 1. Get old transaction
-      final oldTransaksi = await txn.query(
-        'fact_transaksi',
-        where: 'transaksi_id = ? AND is_deleted = 0',
-        whereArgs: [transaksi.transaksiId],
-      );
+        if (oldTransaksi.isEmpty) {
+          throw Exception('Transaksi not found');
+        }
 
-      if (oldTransaksi.isEmpty) {
-        throw Exception('Transaksi tidak ditemukan');
-      }
+        final oldJumlahLiter = oldTransaksi.first['jumlah_liter'] as int;
+        final newJumlahLiter = transaksi.jumlahLiter;
+        final selisihLiter = newJumlahLiter - oldJumlahLiter;
 
-      final oldJumlahLiter = (oldTransaksi.first['jumlah_liter'] as num)
-          .toDouble();
+        // Update transaksi
+        await txn.update(
+          'fact_transaksi',
+          (transaksi as TransaksiModel).toMap(),
+          where: 'transaksi_id = ?',
+          whereArgs: [transaksi.transaksiId],
+        );
 
-      // 2. Get kupon info
-      final kuponResult = await txn.query(
-        'fact_kupon',
-        where: 'kupon_id = ?',
-        whereArgs: [transaksi.kuponId],
-      );
+        // Update kuota_sisa in fact_kupon
+        await txn.rawUpdate(
+          '''
+          UPDATE fact_kupon 
+          SET kuota_sisa = kuota_sisa - ?,
+              updated_at = DATETIME('now', 'localtime')
+          WHERE kupon_id = ?
+        ''',
+          [selisihLiter, transaksi.kuponId],
+        );
+      });
+    } catch (e) {
+      throw Exception('Failed to update transaksi: $e');
+    }
+  }
 
-      if (kuponResult.isEmpty) {
-        throw Exception('Kupon tidak ditemukan');
-      }
-
-      final kupon = kuponResult.first;
-      final currentKuotaSisa = (kupon['kuota_sisa'] as num).toDouble();
-
-      // Add back the old amount and check if new amount can be deducted
-      final availableKuota = currentKuotaSisa + oldJumlahLiter;
-      if (availableKuota < transaksi.jumlahLiter) {
-        throw Exception('Jumlah liter melebihi sisa kuota');
-      }
-
-      // 3. Update transaction
-      final now = DateTime.now().toIso8601String();
-      await txn.update(
-        'fact_transaksi',
-        {
-          'jumlah_liter': transaksi.jumlahLiter,
-          'tanggal_transaksi': transaksi.tanggalTransaksi,
-          'updated_at': now,
-        },
-        where: 'transaksi_id = ?',
-        whereArgs: [transaksi.transaksiId],
-      );
-
-      // 4. Update kupon sisa
-      final newKuotaSisa = availableKuota - transaksi.jumlahLiter;
-      await txn.update(
-        'fact_kupon',
-        {
-          'kuota_sisa': newKuotaSisa,
-          'status': newKuotaSisa > 0 ? 'Aktif' : 'Habis',
-          'updated_at': now,
-        },
-        where: 'kupon_id = ?',
-        whereArgs: [transaksi.kuponId],
-      );
-    });
+  Future<void> softDeleteTransaksi(int transaksiId) async {
+    await _hardDeleteOrRestore(transaksiId, isDelete: true);
   }
 
   @override
   Future<void> deleteTransaksi(int transaksiId) async {
-    final db = await dbHelper.database;
+    await _hardDeleteOrRestore(transaksiId, isDelete: true);
+  }
 
-    await db.transaction((txn) async {
-      // 1. Get transaction info
-      final transaksiResult = await txn.query(
-        'fact_transaksi',
-        where: 'transaksi_id = ? AND is_deleted = 0',
-        whereArgs: [transaksiId],
+  Future<void> _hardDeleteOrRestore(
+    int transaksiId, {
+    required bool isDelete,
+  }) async {
+    try {
+      final db = await dbHelper.database;
+      await db.transaction((txn) async {
+        // Get transaksi data
+        final transaksi = await txn.query(
+          'fact_transaksi',
+          where: 'transaksi_id = ?',
+          whereArgs: [transaksiId],
+        );
+
+        if (transaksi.isEmpty) {
+          throw Exception('Transaksi not found');
+        }
+
+        final jumlahLiter = transaksi.first['jumlah_liter'] as double;
+        final kuponId = transaksi.first['kupon_id'] as int;
+
+        if (isDelete) {
+          // Delete transaksi
+          await txn.delete(
+            'fact_transaksi',
+            where: 'transaksi_id = ?',
+            whereArgs: [transaksiId],
+          );
+
+          // Return kuota to fact_kupon
+          await txn.rawUpdate(
+            '''
+            UPDATE fact_kupon 
+            SET kuota_sisa = kuota_sisa + ?,
+                updated_at = DATETIME('now', 'localtime')
+            WHERE kupon_id = ?
+          ''',
+            [jumlahLiter, kuponId],
+          );
+        } else {
+          // Restore transaksi
+          await txn.update(
+            'fact_transaksi',
+            {'is_deleted': 0, 'updated_at': DateTime.now().toIso8601String()},
+            where: 'transaksi_id = ?',
+            whereArgs: [transaksiId],
+          );
+
+          // Deduct kuota from fact_kupon
+          await txn.rawUpdate(
+            '''
+            UPDATE fact_kupon 
+            SET kuota_sisa = kuota_sisa - ?,
+                updated_at = DATETIME('now', 'localtime')
+            WHERE kupon_id = ?
+          ''',
+            [jumlahLiter, kuponId],
+          );
+        }
+      });
+    } catch (e) {
+      throw Exception(
+        'Failed to ${isDelete ? "delete" : "restore"} transaksi: $e',
       );
-
-      if (transaksiResult.isEmpty) {
-        throw Exception('Transaksi tidak ditemukan');
-      }
-
-      final transaksi = transaksiResult.first;
-      final jumlahLiter = (transaksi['jumlah_liter'] as num).toDouble();
-      final kuponId = transaksi['kupon_id'] as int;
-
-      // 2. Get kupon info
-      final kuponResult = await txn.query(
-        'fact_kupon',
-        where: 'kupon_id = ?',
-        whereArgs: [kuponId],
-      );
-
-      if (kuponResult.isEmpty) {
-        throw Exception('Kupon tidak ditemukan');
-      }
-
-      final kupon = kuponResult.first;
-      final currentKuotaSisa = (kupon['kuota_sisa'] as num).toDouble();
-
-      // 3. Soft delete transaction
-      final now = DateTime.now().toIso8601String();
-      await txn.update(
-        'fact_transaksi',
-        {'is_deleted': 1, 'updated_at': now},
-        where: 'transaksi_id = ?',
-        whereArgs: [transaksiId],
-      );
-
-      // 4. Update kupon sisa
-      final newKuotaSisa = currentKuotaSisa + jumlahLiter;
-      await txn.update(
-        'fact_kupon',
-        {
-          'kuota_sisa': newKuotaSisa,
-          'status': newKuotaSisa > 0 ? 'Aktif' : 'Habis',
-          'updated_at': now,
-        },
-        where: 'kupon_id = ?',
-        whereArgs: [kuponId],
-      );
-    });
+    }
   }
 
   @override
   Future<List<Map<String, dynamic>>> getKuponMinus() async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
+      final result = await db.rawQuery('''
+        SELECT 
+          k.*,
+          s.nama_satker,
+          jk.nama_jenis_kupon,
+          COALESCE(t.total_liter, 0) as total_liter,
+          k.kuota_awal as kuota_satker,
+          k.kuota_sisa,
+          ABS(k.kuota_sisa) as minus
+        FROM fact_kupon k
+        LEFT JOIN dim_satker s ON k.satker_id = s.satker_id
+        LEFT JOIN dim_jenis_kupon jk ON k.jenis_kupon_id = jk.jenis_kupon_id
+        LEFT JOIN (
+          SELECT kupon_id, SUM(jumlah_liter) as total_liter
+          FROM fact_transaksi
+          WHERE is_deleted = 0
+          GROUP BY kupon_id
+        ) t ON k.kupon_id = t.kupon_id
+        WHERE k.kuota_sisa < 0 AND k.is_deleted = 0
+      ''');
 
-    return await db.rawQuery('''
-      SELECT k.kupon_id, k.nomor_kupon, k.kuota_awal, k.kuota_sisa,
-      (SELECT SUM(t.jumlah_liter)
-       FROM fact_transaksi t
-       WHERE t.kupon_id = k.kupon_id AND t.is_deleted = 0) as total_diambil
-      FROM fact_kupon k
-      WHERE k.kuota_sisa < 0
-    ''');
+      return result;
+    } catch (e) {
+      throw Exception('Failed to get kupon minus: $e');
+    }
   }
 
+  @override
   Future<void> restoreTransaksi(int transaksiId) async {
-    final db = await dbHelper.database;
+    try {
+      final db = await dbHelper.database;
+      await db.transaction((txn) async {
+        // Get transaksi data
+        final transaksi = await txn.query(
+          'fact_transaksi',
+          where: 'transaksi_id = ?',
+          whereArgs: [transaksiId],
+        );
 
-    await db.transaction((txn) async {
-      // 1. Get transaction info
-      final transaksiResult = await txn.query(
-        'fact_transaksi',
-        where: 'transaksi_id = ? AND is_deleted = 1',
-        whereArgs: [transaksiId],
-      );
+        if (transaksi.isEmpty) {
+          throw Exception('Transaksi not found');
+        }
 
-      if (transaksiResult.isEmpty) {
-        throw Exception('Transaksi tidak ditemukan');
-      }
+        final jumlahLiter = transaksi.first['jumlah_liter'] as int;
+        final kuponId = transaksi.first['kupon_id'] as int;
 
-      final transaksi = transaksiResult.first;
-      final jumlahLiter = (transaksi['jumlah_liter'] as num).toDouble();
-      final kuponId = transaksi['kupon_id'] as int;
+        // Restore transaksi
+        await txn.update(
+          'fact_transaksi',
+          {'is_deleted': 0, 'updated_at': DateTime.now().toIso8601String()},
+          where: 'transaksi_id = ?',
+          whereArgs: [transaksiId],
+        );
 
-      // 2. Get kupon info
-      final kuponResult = await txn.query(
-        'fact_kupon',
-        where: 'kupon_id = ?',
-        whereArgs: [kuponId],
-      );
-
-      if (kuponResult.isEmpty) {
-        throw Exception('Kupon tidak ditemukan');
-      }
-
-      final kupon = kuponResult.first;
-      final currentKuotaSisa = (kupon['kuota_sisa'] as num).toDouble();
-
-      // 3. Restore transaction
-      final now = DateTime.now().toIso8601String();
-      await txn.update(
-        'fact_transaksi',
-        {'is_deleted': 0, 'updated_at': now},
-        where: 'transaksi_id = ?',
-        whereArgs: [transaksiId],
-      );
-
-      // 4. Update kupon sisa
-      final newKuotaSisa = currentKuotaSisa - jumlahLiter;
-      await txn.update(
-        'fact_kupon',
-        {
-          'kuota_sisa': newKuotaSisa,
-          'status': newKuotaSisa > 0 ? 'Aktif' : 'Habis',
-          'updated_at': now,
-        },
-        where: 'kupon_id = ?',
-        whereArgs: [kuponId],
-      );
-    });
+        // Deduct kuota from fact_kupon
+        await txn.rawUpdate(
+          '''
+          UPDATE fact_kupon 
+          SET kuota_sisa = kuota_sisa - ?,
+              updated_at = DATETIME('now', 'localtime')
+          WHERE kupon_id = ?
+        ''',
+          [jumlahLiter, kuponId],
+        );
+      });
+    } catch (e) {
+      throw Exception('Failed to restore transaksi: $e');
+    }
   }
 }

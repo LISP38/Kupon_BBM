@@ -4,10 +4,6 @@ abstract class TransaksiRepository {
   Future<List<TransaksiEntity>> getAllTransaksi({
     int? bulan,
     int? tahun,
-    int? hari,
-    String? nomorKupon,
-    String? satker,
-    int? jenisBbmId,
     int? isDeleted,
   });
   Future<TransaksiEntity?> getTransaksiById(int transaksiId);

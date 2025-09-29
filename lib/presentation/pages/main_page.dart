@@ -12,7 +12,6 @@ class MainPage extends StatefulWidget {
   State<MainPage> createState() => _MainPageState();
 }
 
-
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
 
@@ -75,9 +74,7 @@ class _MainPageState extends State<MainPage> {
           ),
           const VerticalDivider(thickness: 1, width: 1),
           // Halaman konten akan ditampilkan di sini
-          Expanded(
-            child: _buildPage(_selectedIndex),
-          ),
+          Expanded(child: _buildPage(_selectedIndex)),
         ],
       ),
     );
