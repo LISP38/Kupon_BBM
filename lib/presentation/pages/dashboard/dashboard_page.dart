@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 import 'dart:io';
 
 import '../../../core/di/dependency_injection.dart';
@@ -38,6 +39,11 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _selectedJenisRanmor;
   int? _selectedBulan;
   int? _selectedTahun;
+
+  // Pagination variables
+  int _currentPage = 1;
+  final int _itemsPerPage = 10;
+  int _totalPages = 1;
 
   bool _firstLoad = true;
 
@@ -115,6 +121,32 @@ class _DashboardPageState extends State<DashboardPage> {
     return '${kendaraan.noPolNomor}-${kendaraan.noPolKode}';
   }
 
+  void _resetFilters() {
+    setState(() {
+      _nomorKuponController.clear();
+      _nopolController.clear();
+      _selectedSatker = null;
+      _selectedJenisBBM = null;
+      _selectedJenisKupon = null;
+      _selectedJenisRanmor = null;
+      _selectedBulan = null;
+      _selectedTahun = null;
+      _currentPage = 1; // Reset pagination
+    });
+
+    // Apply empty filters to reset the view
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    provider.setFilter(
+      nomorKupon: '',
+      satker: null,
+      jenisBBM: null,
+      jenisKupon: null,
+      nopol: '',
+      bulanTerbit: null,
+      tahunTerbit: null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -168,11 +200,27 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Filter',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Icon(Icons.filter_list, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Filter Data Kupon',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _resetFilters,
+                  icon: const Icon(Icons.clear_all, size: 18),
+                  label: const Text('Reset Semua'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 16,
               runSpacing: 16,
@@ -180,37 +228,69 @@ class _DashboardPageState extends State<DashboardPage> {
                 // Nomor Kupon Filter
                 SizedBox(
                   width: 200,
-                  child: TextField(
-                    controller: _nomorKuponController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nomor Kupon',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.numbers),
+                  child: DropdownSearch<String>(
+                    items: provider.kupons
+                        .map((k) => k.nomorKupon)
+                        .toSet()
+                        .toList(),
+                    selectedItem: _nomorKuponController.text.isEmpty
+                        ? null
+                        : _nomorKuponController.text,
+                    dropdownDecoratorProps: const DropDownDecoratorProps(
+                      dropdownSearchDecoration: InputDecoration(
+                        labelText: 'Nomor Kupon',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.numbers),
+                      ),
                     ),
+                    popupProps: PopupProps.menu(
+                      showSearchBox: true,
+                      searchFieldProps: const TextFieldProps(
+                        decoration: InputDecoration(
+                          hintText: 'Cari Nomor Kupon...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      fit: FlexFit.loose,
+                      constraints: const BoxConstraints(maxHeight: 300),
+                    ),
+                    onChanged: (val) =>
+                        setState(() => _nomorKuponController.text = val ?? ''),
+                    clearButtonProps: const ClearButtonProps(isVisible: true),
                   ),
                 ),
 
                 // Satker Filter
                 SizedBox(
                   width: 200,
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedSatker,
+                  child: DropdownSearch<String>(
                     items: provider.kupons
                         .map((k) => k.namaSatker)
                         .toSet()
-                        .map(
-                          (namaSatker) => DropdownMenuItem(
-                            value: namaSatker,
-                            child: Text(namaSatker),
-                          ),
-                        )
                         .toList(),
-                    onChanged: (val) => setState(() => _selectedSatker = val),
-                    decoration: const InputDecoration(
-                      labelText: 'Satker',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.business),
+                    selectedItem: _selectedSatker,
+                    dropdownDecoratorProps: const DropDownDecoratorProps(
+                      dropdownSearchDecoration: InputDecoration(
+                        labelText: 'Satker',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.business),
+                      ),
                     ),
+                    popupProps: PopupProps.menu(
+                      showSearchBox: true,
+                      searchFieldProps: const TextFieldProps(
+                        decoration: InputDecoration(
+                          hintText: 'Cari Satker...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      fit: FlexFit.loose,
+                      constraints: const BoxConstraints(maxHeight: 300),
+                    ),
+                    onChanged: (val) => setState(() => _selectedSatker = val),
+                    clearButtonProps: const ClearButtonProps(isVisible: true),
                   ),
                 ),
 
@@ -262,38 +342,70 @@ class _DashboardPageState extends State<DashboardPage> {
                 // NoPol Filter
                 SizedBox(
                   width: 200,
-                  child: TextField(
-                    controller: _nopolController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nomor Polisi',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.directions_car),
+                  child: DropdownSearch<String>(
+                    items: _kendaraanList
+                        .map((k) => '${k.noPolNomor}-${k.noPolKode}')
+                        .toSet()
+                        .toList(),
+                    selectedItem: _nopolController.text.isEmpty
+                        ? null
+                        : _nopolController.text,
+                    dropdownDecoratorProps: const DropDownDecoratorProps(
+                      dropdownSearchDecoration: InputDecoration(
+                        labelText: 'Nomor Polisi',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.directions_car),
+                      ),
                     ),
+                    popupProps: PopupProps.menu(
+                      showSearchBox: true,
+                      searchFieldProps: const TextFieldProps(
+                        decoration: InputDecoration(
+                          hintText: 'Cari Nomor Polisi...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      fit: FlexFit.loose,
+                      constraints: const BoxConstraints(maxHeight: 300),
+                    ),
+                    onChanged: (val) =>
+                        setState(() => _nopolController.text = val ?? ''),
+                    clearButtonProps: const ClearButtonProps(isVisible: true),
                   ),
                 ),
 
                 // Jenis Ranmor Filter
                 SizedBox(
                   width: 200,
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedJenisRanmor,
+                  child: DropdownSearch<String>(
                     items: _kendaraanList
                         .map((k) => k.jenisRanmor)
                         .toSet()
-                        .map(
-                          (jenis) => DropdownMenuItem(
-                            value: jenis,
-                            child: Text(jenis),
-                          ),
-                        )
                         .toList(),
+                    selectedItem: _selectedJenisRanmor,
+                    dropdownDecoratorProps: const DropDownDecoratorProps(
+                      dropdownSearchDecoration: InputDecoration(
+                        labelText: 'Jenis Ranmor',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category),
+                      ),
+                    ),
+                    popupProps: PopupProps.menu(
+                      showSearchBox: true,
+                      searchFieldProps: const TextFieldProps(
+                        decoration: InputDecoration(
+                          hintText: 'Cari Jenis Ranmor...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      fit: FlexFit.loose,
+                      constraints: const BoxConstraints(maxHeight: 300),
+                    ),
                     onChanged: (val) =>
                         setState(() => _selectedJenisRanmor = val),
-                    decoration: const InputDecoration(
-                      labelText: 'Jenis Ranmor',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.category),
-                    ),
+                    clearButtonProps: const ClearButtonProps(isVisible: true),
                   ),
                 ),
 
@@ -349,10 +461,14 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
             const SizedBox(height: 16),
+            const Divider(),
             Row(
               children: [
                 ElevatedButton.icon(
                   onPressed: () {
+                    setState(() {
+                      _currentPage = 1; // Reset to first page when filtering
+                    });
                     provider.setFilter(
                       nomorKupon: _nomorKuponController.text,
                       satker: _selectedSatker,
@@ -364,29 +480,56 @@ class _DashboardPageState extends State<DashboardPage> {
                     );
                   },
                   icon: const Icon(Icons.search),
-                  label: const Text('Cari'),
+                  label: const Text('Terapkan Filter'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    _nomorKuponController.clear();
-                    _nopolController.clear();
-                    setState(() {
-                      _selectedSatker = null;
-                      _selectedJenisBBM = null;
-                      _selectedJenisKupon = null;
-                      _selectedJenisRanmor = null;
-                      _selectedBulan = null;
-                      _selectedTahun = null;
-                    });
-                    provider.fetchKupons();
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reset'),
+                  onPressed: _resetFilters,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Bersihkan Filter'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Total Data: ${provider.kupons.length}',
+                        style: TextStyle(
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -533,8 +676,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildMasterKuponTable(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
-        final kupons = provider.kupons;
-        if (kupons.isEmpty) {
+        final allKupons = provider.kupons;
+        if (allKupons.isEmpty) {
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(32.0),
@@ -545,76 +688,205 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           );
         }
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('No.')),
-                  DataColumn(label: Text('Nomor Kupon')),
-                  DataColumn(label: Text('Jenis BBM')),
-                  DataColumn(label: Text('Jenis Kupon')),
-                  DataColumn(label: Text('NoPol')),
-                  DataColumn(label: Text('Kuota Awal')),
-                  DataColumn(label: Text('Kuota Sisa')),
-                  DataColumn(label: Text('Status')),
-                  DataColumn(label: Text('Aksi')),
-                ],
-                rows: kupons.asMap().entries.map((entry) {
-                  final i = entry.key + 1;
-                  final k = entry.value;
-                  final kendaraan = _kendaraanList.firstWhere(
-                    (kend) => kend.kendaraanId == k.kendaraanId,
-                    orElse: () => KendaraanModel(
-                      kendaraanId: 0,
-                      satkerId: 0,
-                      jenisRanmor: '-',
-                      noPolKode: '-',
-                      noPolNomor: '-',
+
+        // Calculate pagination
+        _totalPages = (allKupons.length / _itemsPerPage).ceil();
+        final startIndex = (_currentPage - 1) * _itemsPerPage;
+        final endIndex = (startIndex + _itemsPerPage).clamp(
+          0,
+          allKupons.length,
+        );
+        final paginatedKupons = allKupons.sublist(startIndex, endIndex);
+
+        return Column(
+          children: [
+            // Table with scroll
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical,
+                      child: DataTable(
+                        columns: const [
+                          DataColumn(label: Text('No.')),
+                          DataColumn(label: Text('Nomor Kupon')),
+                          DataColumn(label: Text('Jenis BBM')),
+                          DataColumn(label: Text('Jenis Kupon')),
+                          DataColumn(label: Text('NoPol')),
+                          DataColumn(label: Text('Kuota Awal')),
+                          DataColumn(label: Text('Kuota Sisa')),
+                          DataColumn(label: Text('Status')),
+                          DataColumn(label: Text('Aksi')),
+                        ],
+                        rows: paginatedKupons.asMap().entries.map((entry) {
+                          final i = startIndex + entry.key + 1;
+                          final k = entry.value;
+                          final kendaraan = _kendaraanList.firstWhere(
+                            (kend) => kend.kendaraanId == k.kendaraanId,
+                            orElse: () => KendaraanModel(
+                              kendaraanId: 0,
+                              satkerId: 0,
+                              jenisRanmor: '-',
+                              noPolKode: '-',
+                              noPolNomor: '-',
+                            ),
+                          );
+                          return DataRow(
+                            cells: [
+                              DataCell(Text(i.toString())),
+                              DataCell(
+                                Text(
+                                  '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}',
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  _jenisBBMMap[k.jenisBbmId] ??
+                                      k.jenisBbmId.toString(),
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  _jenisKuponMap[k.jenisKuponId] ??
+                                      k.jenisKuponId.toString(),
+                                ),
+                              ),
+                              DataCell(
+                                Text(_getNopolByKendaraanId(k.kendaraanId)),
+                              ),
+                              DataCell(Text(k.kuotaAwal.toString())),
+                              DataCell(Text(k.kuotaSisa.toString())),
+                              DataCell(Text(k.status)),
+                              DataCell(
+                                IconButton(
+                                  icon: const Icon(Icons.info_outline),
+                                  onPressed: () => _showKuponDetailDialog(
+                                    context,
+                                    k,
+                                    kendaraan,
+                                  ),
+                                  tooltip: 'Detail',
+                                ),
+                              ),
+                            ],
+                          );
+                        }).toList(),
+                      ),
                     ),
-                  );
-                  return DataRow(
-                    cells: [
-                      DataCell(Text(i.toString())),
-                      DataCell(
-                        Text(
-                          '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}',
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          _jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString(),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          _jenisKuponMap[k.jenisKuponId] ??
-                              k.jenisKuponId.toString(),
-                        ),
-                      ),
-                      DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
-                      DataCell(Text(k.kuotaAwal.toString())),
-                      DataCell(Text(k.kuotaSisa.toString())),
-                      DataCell(Text(k.status)),
-                      DataCell(
-                        IconButton(
-                          icon: const Icon(Icons.info_outline),
-                          onPressed: () =>
-                              _showKuponDetailDialog(context, k, kendaraan),
-                          tooltip: 'Detail',
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
+                  ),
+                ),
               ),
             ),
-          ),
+            // Pagination Controls
+            _buildPaginationControls(allKupons.length),
+          ],
         );
       },
     );
+  }
+
+  Widget _buildPaginationControls(int totalItems) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: const BorderDirectional(top: BorderSide(color: Colors.grey)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Info text
+          Text(
+            'Halaman $_currentPage dari $_totalPages (Total: $totalItems item)',
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+          // Navigation buttons
+          Row(
+            children: [
+              // First page
+              IconButton(
+                onPressed: _currentPage > 1 ? () => _goToPage(1) : null,
+                icon: const Icon(Icons.first_page),
+                tooltip: 'Halaman Pertama',
+              ),
+              // Previous page
+              IconButton(
+                onPressed: _currentPage > 1
+                    ? () => _goToPage(_currentPage - 1)
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+                tooltip: 'Halaman Sebelumnya',
+              ),
+              // Page numbers
+              ..._buildPageNumbers(),
+              // Next page
+              IconButton(
+                onPressed: _currentPage < _totalPages
+                    ? () => _goToPage(_currentPage + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+                tooltip: 'Halaman Berikutnya',
+              ),
+              // Last page
+              IconButton(
+                onPressed: _currentPage < _totalPages
+                    ? () => _goToPage(_totalPages)
+                    : null,
+                icon: const Icon(Icons.last_page),
+                tooltip: 'Halaman Terakhir',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPageNumbers() {
+    List<Widget> pages = [];
+    int startPage = (_currentPage - 2).clamp(1, _totalPages);
+    int endPage = (_currentPage + 2).clamp(1, _totalPages);
+
+    for (int i = startPage; i <= endPage; i++) {
+      pages.add(
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          child: Material(
+            color: i == _currentPage ? Colors.blue : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(4),
+              onTap: () => _goToPage(i),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Text(
+                  i.toString(),
+                  style: TextStyle(
+                    color: i == _currentPage ? Colors.white : Colors.black87,
+                    fontWeight: i == _currentPage
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return pages;
+  }
+
+  void _goToPage(int page) {
+    setState(() {
+      _currentPage = page.clamp(1, _totalPages);
+    });
   }
 
   Future<void> _showExportDialog(BuildContext context) async {
@@ -756,6 +1028,17 @@ class _DashboardPageState extends State<DashboardPage> {
     required int year,
   }) async {
     final provider = Provider.of<DashboardProvider>(context, listen: false);
+    final transaksiProvider = Provider.of<TransaksiProvider>(
+      context,
+      listen: false,
+    );
+
+    // Load transaksi data first
+    await transaksiProvider.fetchTransaksi();
+    print(
+      '[EXPORT DEBUG] Total transaksi loaded: ${transaksiProvider.transaksiList.length}',
+    );
+
     final kupons = provider.kupons;
     if (kupons.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -766,6 +1049,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
     final excel = Excel.createExcel();
 
+    // Debug: Print data count
+    print('[EXPORT DEBUG] Total kupons: ${kupons.length}');
+    print(
+      '[EXPORT DEBUG] Export kupon: $exportKupon, Export satker: $exportSatker',
+    );
+
     // Create sheets based on export type
     late final Sheet sheetRanPx;
     late final Sheet sheetDukPx;
@@ -774,42 +1063,41 @@ class _DashboardPageState extends State<DashboardPage> {
     late final Sheet sheetRekapPx;
     late final Sheet sheetRekapDx;
 
+    // Handle kupon export
     if (exportKupon) {
       // Create 4 sheets for kupon data
       sheetRanPx = excel['RAN.PX'];
       sheetDukPx = excel['DUK.PX'];
       sheetDexPx = excel['RAN.DEX'];
       sheetDukDex = excel['DUK.DEX'];
-    }
-
-    if (exportSatker) {
-      // Create sheets for satker data
-      sheetRekapPx = excel['REKAP.PX'];
-      sheetRekapDx = excel['REKAP.DX'];
-
-      // Add headers for Rekap Pertamax sheet
-      sheetRekapPx.appendRow([
-        TextCellValue('NO'),
-        TextCellValue('SATKER'),
-        TextCellValue('KUOTA'),
-        TextCellValue('PEMAKAIAN'),
-        TextCellValue('SALDO'),
-      ]);
-
-      // Add headers for Rekap Dex sheet
-      sheetRekapDx.appendRow([
-        TextCellValue('NO'),
-        TextCellValue('SATKER'),
-        TextCellValue('KUOTA'),
-        TextCellValue('PEMAKAIAN'),
-        TextCellValue('SALDO'),
-      ]);
 
       // Calculate days in month
       final daysInMonth = DateTime(year, month + 1, 0).day;
 
-      // Header structure for all sheets
+      // Header structure for all kupon sheets
       for (var sheet in [sheetRanPx, sheetDukPx, sheetDexPx, sheetDukDex]) {
+        // ROW 0: Title row with period
+        final periodTitle =
+            'Periode: ${month.toString().padLeft(2, '0')}/$year';
+        sheet.appendRow([TextCellValue(periodTitle)]);
+
+        // Calculate total columns for merging
+        final nextMonthDays = DateTime(
+          month == 12 ? year + 1 : year,
+          month == 12 ? 1 : month + 1,
+          0,
+        ).day;
+        final totalCols =
+            7 + daysInMonth + nextMonthDays - 1; // -1 for 0-based index
+
+        // Merge title across all columns
+        sheet.merge(
+          CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+          CellIndex.indexByColumnRow(columnIndex: totalCols, rowIndex: 0),
+        );
+        _stylePeriodTitle(sheet, 0);
+
+        // ROW 1: Main headers + Month titles
         sheet.appendRow([
           TextCellValue('NO'),
           TextCellValue('JENIS RANMOR'),
@@ -820,46 +1108,83 @@ class _DashboardPageState extends State<DashboardPage> {
           TextCellValue('KUOTA SISA'),
         ]);
 
-        // Add date columns for current month
+        // Add month headers for current month
         var monthTitle = 'BULAN ${month.toString().padLeft(2, '0')} - $year';
-        sheet.updateCell(
-          CellIndex.indexByString("H1"),
-          TextCellValue(monthTitle),
-        );
+        var startColIndex = 7; // Starting from column H (index 7)
+        var currentMonthEndCol = startColIndex + daysInMonth - 1;
 
-        // Add date columns
-        var colIndex = 8; // Starting from column H
-        for (int day = 1; day <= daysInMonth; day++) {
-          sheet.updateCell(
-            CellIndex.indexByColumnRow(columnIndex: colIndex, rowIndex: 0),
-            TextCellValue(day.toString()),
-          );
-          colIndex++;
-        }
+        // Style current month header (merge cells for month title)
+        _styleMonthHeader(
+          sheet,
+          1, // Row 1 now (after title)
+          startColIndex,
+          currentMonthEndCol,
+          monthTitle,
+        );
 
         // Next month
         var nextMonth = month == 12 ? 1 : month + 1;
         var nextYear = month == 12 ? year + 1 : year;
-        var nextMonthDays = DateTime(nextYear, nextMonth + 1, 0).day;
+        var nextMonthDaysCount = DateTime(nextYear, nextMonth + 1, 0).day;
+        var nextMonthStartCol = currentMonthEndCol + 1;
+        var nextMonthEndCol = nextMonthStartCol + nextMonthDaysCount - 1;
 
         monthTitle =
             'BULAN ${nextMonth.toString().padLeft(2, '0')} - $nextYear';
-        sheet.updateCell(
-          CellIndex.indexByColumnRow(columnIndex: colIndex, rowIndex: 0),
-          TextCellValue(monthTitle),
-        );
-        colIndex++;
 
-        for (int day = 1; day <= nextMonthDays; day++) {
+        // Style next month header
+        _styleMonthHeader(
+          sheet,
+          1, // Row 1 now (after title)
+          nextMonthStartCol,
+          nextMonthEndCol,
+          monthTitle,
+        );
+
+        // ROW 2: Sub-headers (dates)
+        sheet.appendRow([
+          TextCellValue(''),
+          TextCellValue(''),
+          TextCellValue(''),
+          TextCellValue(''),
+          TextCellValue(''),
+          TextCellValue(''),
+          TextCellValue(''),
+        ]); // Empty cells for main columns
+
+        // Add date numbers for current month (row 2)
+        var colIndex = startColIndex;
+        for (int day = 1; day <= daysInMonth; day++) {
           sheet.updateCell(
-            CellIndex.indexByColumnRow(columnIndex: colIndex, rowIndex: 0),
+            CellIndex.indexByColumnRow(columnIndex: colIndex, rowIndex: 2),
             TextCellValue(day.toString()),
           );
           colIndex++;
         }
+
+        // Add date numbers for next month (row 2)
+        for (int day = 1; day <= nextMonthDaysCount; day++) {
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: colIndex, rowIndex: 2),
+            TextCellValue(day.toString()),
+          );
+          colIndex++;
+        }
+
+        // Style header rows
+        _styleHeaderRow(sheet, 1, colIndex); // Main headers row
+        _styleHeaderRow(sheet, 2, colIndex); // Date headers row
+
+        // Merge cells for main column headers to span 2 rows (skip title row)
+        for (int col = 0; col < 7; col++) {
+          sheet.merge(
+            CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 1),
+            CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 2),
+          );
+        }
       }
 
-      // Populate data
+      // Populate kupon data
       var ranPxData = kupons
           .where((k) => k.jenisKuponId == 1 && k.jenisBbmId == 1)
           .toList();
@@ -873,7 +1198,28 @@ class _DashboardPageState extends State<DashboardPage> {
           .where((k) => k.jenisKuponId == 2 && k.jenisBbmId == 2)
           .toList();
 
-      void populateSheet(Sheet sheet, List<KuponEntity> data) {
+      print('[EXPORT DEBUG] RAN.PX data: ${ranPxData.length}');
+      print('[EXPORT DEBUG] DUK.PX data: ${dukPxData.length}');
+      print('[EXPORT DEBUG] RAN.DEX data: ${ranDexData.length}');
+      print('[EXPORT DEBUG] DUK.DEX data: ${dukDexData.length}');
+
+      void populateSheet(
+        Sheet sheet,
+        List<KuponEntity> data,
+        String sheetName,
+      ) {
+        print(
+          '[EXPORT DEBUG] Populating $sheetName with ${data.length} records',
+        );
+
+        final int startRow = 3; // Start after title + 2-row header
+
+        // Calculate total columns (7 basic + days from both months)
+        final nextMonth = month == 12 ? 1 : month + 1;
+        final nextYear = month == 12 ? year + 1 : year;
+        final nextMonthDays = DateTime(nextYear, nextMonth + 1, 0).day;
+        final totalCols = 7 + daysInMonth + nextMonthDays;
+
         for (int i = 0; i < data.length; i++) {
           final k = data[i];
           final kendaraan = _kendaraanList.firstWhere(
@@ -887,44 +1233,183 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           );
 
-          sheet.appendRow([
+          final currentRowIndex = startRow + i;
+
+          // Basic data columns
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 0,
+              rowIndex: currentRowIndex,
+            ),
             IntCellValue(i + 1),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 1,
+              rowIndex: currentRowIndex,
+            ),
             TextCellValue(kendaraan.jenisRanmor),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 2,
+              rowIndex: currentRowIndex,
+            ),
             TextCellValue(kendaraan.noPolNomor),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 3,
+              rowIndex: currentRowIndex,
+            ),
             TextCellValue(kendaraan.noPolKode),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 4,
+              rowIndex: currentRowIndex,
+            ),
             TextCellValue(k.namaSatker),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 5,
+              rowIndex: currentRowIndex,
+            ),
             DoubleCellValue(k.kuotaAwal),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(
+              columnIndex: 6,
+              rowIndex: currentRowIndex,
+            ),
             DoubleCellValue(k.kuotaSisa),
-          ]);
+          );
+
+          // Fill transaction data per day - Current Month
+          var colIndex = 7;
+          for (int day = 1; day <= daysInMonth; day++) {
+            final dateStr =
+                '$year-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+
+            // Get transactions for this kupon on this date
+            final dayTransactions = transaksiProvider.transaksiList
+                .where(
+                  (t) =>
+                      t.kuponId == k.kuponId &&
+                      t.tanggalTransaksi.startsWith(dateStr) &&
+                      t.isDeleted == 0,
+                )
+                .toList();
+
+            final totalLiter = dayTransactions.fold(
+              0.0,
+              (sum, t) => sum + t.jumlahLiter,
+            );
+
+            if (totalLiter > 0) {
+              sheet.updateCell(
+                CellIndex.indexByColumnRow(
+                  columnIndex: colIndex,
+                  rowIndex: currentRowIndex,
+                ),
+                DoubleCellValue(totalLiter),
+              );
+            }
+            colIndex++;
+          }
+
+          // Fill transaction data per day - Next Month
+          for (int day = 1; day <= nextMonthDays; day++) {
+            final dateStr =
+                '$nextYear-${nextMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+
+            // Get transactions for this kupon on this date
+            final dayTransactions = transaksiProvider.transaksiList
+                .where(
+                  (t) =>
+                      t.kuponId == k.kuponId &&
+                      t.tanggalTransaksi.startsWith(dateStr) &&
+                      t.isDeleted == 0,
+                )
+                .toList();
+
+            final totalLiter = dayTransactions.fold(
+              0.0,
+              (sum, t) => sum + t.jumlahLiter,
+            );
+
+            if (totalLiter > 0) {
+              sheet.updateCell(
+                CellIndex.indexByColumnRow(
+                  columnIndex: colIndex,
+                  rowIndex: currentRowIndex,
+                ),
+                DoubleCellValue(totalLiter),
+              );
+            }
+            colIndex++;
+          }
         }
+
+        // Apply styling to data rows
+        if (data.isNotEmpty) {
+          _styleDataRows(
+            sheet,
+            startRow,
+            startRow + data.length - 1,
+            totalCols,
+          );
+        }
+
+        // Auto-resize columns
+        _autoResizeColumns(sheet, totalCols);
       }
 
-      if (exportKupon) {
-        populateSheet(sheetRanPx, ranPxData);
-        populateSheet(sheetDukPx, dukPxData);
-        populateSheet(sheetDexPx, ranDexData);
-        populateSheet(sheetDukDex, dukDexData);
+      // Populate all kupon sheets
+      populateSheet(sheetRanPx, ranPxData, 'RAN.PX');
+      populateSheet(sheetDukPx, dukPxData, 'DUK.PX');
+      populateSheet(sheetDexPx, ranDexData, 'RAN.DEX');
+      populateSheet(sheetDukDex, dukDexData, 'DUK.DEX');
+    }
+
+    // Handle satker export
+    if (exportSatker) {
+      // Create sheets for satker data
+      sheetRekapPx = excel['REKAP.PX'];
+      sheetRekapDx = excel['REKAP.DX'];
+
+      // Setup both REKAP sheets with same styling structure
+      for (var sheet in [sheetRekapPx, sheetRekapDx]) {
+        // ROW 0: Title row with period
+        final periodTitle =
+            'Periode: ${month.toString().padLeft(2, '0')}/$year';
+        sheet.appendRow([TextCellValue(periodTitle)]);
+
+        // Merge title across all columns (5 columns for satker)
+        sheet.merge(
+          CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+          CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: 0),
+        );
+        _stylePeriodTitle(sheet, 0);
+
+        // ROW 1: Headers
+        sheet.appendRow([
+          TextCellValue('NO'),
+          TextCellValue('SATKER'),
+          TextCellValue('KUOTA'),
+          TextCellValue('PEMAKAIAN'),
+          TextCellValue('SALDO'),
+        ]);
+        _styleHeaderRow(sheet, 1, 5);
       }
 
+      // Handle satker data population
       if (exportSatker) {
-        // Create sheets for satker data
-        final sheetRekapPx = excel['REKAP.PX'];
-        final sheetRekapDx = excel['REKAP.DX'];
-
-        // Add headers for both sheets
-        for (var sheet in [sheetRekapPx, sheetRekapDx]) {
-          sheet.appendRow([
-            TextCellValue('NO'),
-            TextCellValue('SATKER'),
-            TextCellValue('KUOTA'),
-            TextCellValue('PEMAKAIAN'),
-            TextCellValue('SALDO'),
-          ]);
-        }
-
         // Function to calculate totals and populate sheet
         void populateRekapSheet(Sheet sheet, bool isPertamax) {
           var index = 1;
+          var currentRow = 2; // Start from row 2 (after title + header)
           double totalKuota = 0;
           double totalPemakaian = 0;
           double totalSaldo = 0;
@@ -988,18 +1473,33 @@ class _DashboardPageState extends State<DashboardPage> {
             );
             final saldo = kuota - pemakaian;
 
-            sheet.appendRow([
+            // Update cells individually for better control
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: currentRow),
               IntCellValue(index),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: currentRow),
               TextCellValue(satker),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: currentRow),
               DoubleCellValue(kuota),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: currentRow),
               DoubleCellValue(pemakaian),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: currentRow),
               DoubleCellValue(saldo),
-            ]);
+            );
 
             totalKuota += kuota;
             totalPemakaian += pemakaian;
             totalSaldo += saldo;
             index++;
+            currentRow++;
           }
 
           // Calculate Dukungan totals (jenisKuponId = 2)
@@ -1022,27 +1522,65 @@ class _DashboardPageState extends State<DashboardPage> {
             final dukunganSaldo = dukunganKuota - dukunganPemakaian;
 
             // Add Dukungan row
-            sheet.appendRow([
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: currentRow),
               IntCellValue(index),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: currentRow),
               TextCellValue('DUKUNGAN'),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: currentRow),
               DoubleCellValue(dukunganKuota),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: currentRow),
               DoubleCellValue(dukunganPemakaian),
+            );
+            sheet.updateCell(
+              CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: currentRow),
               DoubleCellValue(dukunganSaldo),
-            ]);
+            );
 
             totalKuota += dukunganKuota;
             totalPemakaian += dukunganPemakaian;
             totalSaldo += dukunganSaldo;
+            currentRow++;
           }
 
           // Add Grand Total row
-          sheet.appendRow([
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: currentRow),
             TextCellValue(''),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: currentRow),
             TextCellValue('GRAND TOTAL'),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: currentRow),
             DoubleCellValue(totalKuota),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: currentRow),
             DoubleCellValue(totalPemakaian),
+          );
+          sheet.updateCell(
+            CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: currentRow),
             DoubleCellValue(totalSaldo),
-          ]);
+          );
+
+          // Apply styling to data rows (from row 2 to currentRow-1)
+          if (currentRow > 2) {
+            _styleDataRows(sheet, 2, currentRow - 1, 5);
+          }
+
+          // Style Grand Total row
+          _styleTotalRow(sheet, currentRow, 5);
+
+          // Auto-resize columns
+          _autoResizeColumns(sheet, 5);
         }
 
         // Populate both sheets
@@ -1077,5 +1615,122 @@ class _DashboardPageState extends State<DashboardPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('Export berhasil: $outputPath')));
+  }
+
+  // Helper functions for Excel styling
+  void _styleHeaderRow(Sheet sheet, int rowIndex, int columnCount) {
+    for (int col = 0; col < columnCount; col++) {
+      final cell = sheet.cell(
+        CellIndex.indexByColumnRow(columnIndex: col, rowIndex: rowIndex),
+      );
+
+      cell.cellStyle = CellStyle(
+        backgroundColorHex: ExcelColor.blue,
+        fontColorHex: ExcelColor.white,
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+        verticalAlign: VerticalAlign.Center,
+      );
+    }
+  }
+
+  void _styleDataRows(Sheet sheet, int startRow, int endRow, int columnCount) {
+    for (int row = startRow; row <= endRow; row++) {
+      for (int col = 0; col < columnCount; col++) {
+        final cell = sheet.cell(
+          CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row),
+        );
+
+        // Alternating row colors
+        ExcelColor bgColor = row % 2 == 0 ? ExcelColor.white : ExcelColor.none;
+
+        cell.cellStyle = CellStyle(
+          backgroundColorHex: bgColor,
+          horizontalAlign: col == 0
+              ? HorizontalAlign.Center
+              : (col >= 5 ? HorizontalAlign.Right : HorizontalAlign.Left),
+          verticalAlign: VerticalAlign.Center,
+        );
+      }
+    }
+  }
+
+  void _styleTotalRow(Sheet sheet, int rowIndex, int columnCount) {
+    for (int col = 0; col < columnCount; col++) {
+      final cell = sheet.cell(
+        CellIndex.indexByColumnRow(columnIndex: col, rowIndex: rowIndex),
+      );
+
+      cell.cellStyle = CellStyle(
+        backgroundColorHex: ExcelColor.blue,
+        fontColorHex: ExcelColor.white,
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+        verticalAlign: VerticalAlign.Center,
+      );
+    }
+  }
+
+  void _styleMonthHeader(
+    Sheet sheet,
+    int rowIndex,
+    int startCol,
+    int endCol,
+    String title,
+  ) {
+    // Merge cells for month title
+    sheet.merge(
+      CellIndex.indexByColumnRow(columnIndex: startCol, rowIndex: rowIndex),
+      CellIndex.indexByColumnRow(columnIndex: endCol, rowIndex: rowIndex),
+    );
+
+    final cell = sheet.cell(
+      CellIndex.indexByColumnRow(columnIndex: startCol, rowIndex: rowIndex),
+    );
+
+    cell.value = TextCellValue(title);
+    cell.cellStyle = CellStyle(
+      backgroundColorHex: ExcelColor.green,
+      fontColorHex: ExcelColor.white,
+      bold: true,
+      horizontalAlign: HorizontalAlign.Center,
+      verticalAlign: VerticalAlign.Center,
+    );
+  }
+
+  void _stylePeriodTitle(Sheet sheet, int rowIndex) {
+    final cell = sheet.cell(
+      CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex),
+    );
+
+    cell.cellStyle = CellStyle(
+      backgroundColorHex: ExcelColor.blue,
+      fontColorHex: ExcelColor.white,
+      bold: true,
+      horizontalAlign: HorizontalAlign.Center,
+      verticalAlign: VerticalAlign.Center,
+    );
+  }
+
+  void _autoResizeColumns(Sheet sheet, int columnCount) {
+    // Set fixed column widths for better appearance
+    const Map<int, double> columnWidths = {
+      0: 5.0, // NO
+      1: 15.0, // JENIS RANMOR or SATKER
+      2: 10.0, // NO POL or KUOTA
+      3: 8.0, // KODE or PEMAKAIAN
+      4: 20.0, // SATKER or SALDO
+      5: 12.0, // KUOTA
+      6: 12.0, // KUOTA SISA
+    };
+
+    for (int col = 0; col < columnCount; col++) {
+      if (columnWidths.containsKey(col)) {
+        sheet.setColumnWidth(col, columnWidths[col]!);
+      } else {
+        // For date columns, make them smaller
+        sheet.setColumnWidth(col, 4.0);
+      }
+    }
   }
 }
