@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../core/di/dependency_injection.dart';
-import '../../../domain/entities/kendaraan_entity.dart';
-import '../../../domain/repositories/kendaraan_repository.dart';
-import '../../../data/models/kendaraan_model.dart';
-import '../../providers/dashboard_provider.dart';
+import 'package:excel/excel.dart' as excel_lib;
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../../providers/transaksi_provider.dart';
-import '../transaksi/transaksi_bbm_form_new.dart';
 
 class DataTransaksiPage extends StatefulWidget {
   const DataTransaksiPage({super.key});
@@ -22,34 +19,23 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
   final List<int> _bulanList = List.generate(12, (i) => i + 1);
   final List<int> _tahunList = [DateTime.now().year, DateTime.now().year + 1];
 
-  List<KendaraanEntity> _kendaraanList = [];
-
   // Map jenis BBM untuk tampilan
   final Map<int, String> _jenisBBMMap = {1: 'Pertamax', 2: 'Pertamina Dex'};
+
+  // Map jenis kupon untuk tampilan
+  final Map<int, String> _jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
 
   @override
   void initState() {
     super.initState();
-    _initData();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    Provider.of<TransaksiProvider>(
-      context,
-      listen: false,
-    ).fetchTransaksiFiltered();
-  }
-
-  Future<void> _initData() async {
-    final repo = getIt<KendaraanRepository>();
-    final kendaraanList = await repo.getAllKendaraan();
-    if (mounted) {
-      setState(() {
-        _kendaraanList = kendaraanList;
-      });
-    }
+    final provider = Provider.of<TransaksiProvider>(context, listen: false);
+    provider.fetchTransaksiFiltered();
+    provider.fetchKuponMinus();
   }
 
   String _getBulanName(int bulan) {
@@ -281,29 +267,430 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
     );
   }
 
+  // Export function for Transaksi table
+  Future<void> _exportTransaksiToExcel() async {
+    final provider = Provider.of<TransaksiProvider>(context, listen: false);
+    final transaksi = provider.transaksiList;
+
+    if (transaksi.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak ada data transaksi untuk diexport'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Create Excel workbook
+      var excel = excel_lib.Excel.createExcel();
+      var sheet = excel['Data Transaksi'];
+
+      // Define cell styles
+      var headerStyle = excel_lib.CellStyle(
+        bold: true,
+        horizontalAlign: excel_lib.HorizontalAlign.Center,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      var dataStyle = excel_lib.CellStyle(
+        horizontalAlign: excel_lib.HorizontalAlign.Left,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      var numberStyle = excel_lib.CellStyle(
+        horizontalAlign: excel_lib.HorizontalAlign.Right,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      // Define headers
+      var headers = [
+        'Tanggal',
+        'Nomor Kupon',
+        'Satker',
+        'Jenis BBM',
+        'Jenis Kupon',
+        'Jumlah (L)',
+      ];
+
+      // Write headers
+      for (var i = 0; i < headers.length; i++) {
+        sheet.cell(
+            excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+          )
+          ..value = excel_lib.TextCellValue(headers[i])
+          ..cellStyle = headerStyle;
+      }
+
+      // Write data rows
+      var rowIndex = 1;
+      for (final t in transaksi) {
+        var row = [
+          t.tanggalTransaksi,
+          t.nomorKupon,
+          t.namaSatker,
+          _jenisBBMMap[t.jenisBbmId] ?? 'Unknown',
+          'RANJEN', // Default jenis kupon
+          t.jumlahLiter.toString(),
+        ];
+
+        for (var i = 0; i < row.length; i++) {
+          var cell = sheet.cell(
+            excel_lib.CellIndex.indexByColumnRow(
+              columnIndex: i,
+              rowIndex: rowIndex,
+            ),
+          );
+
+          if (i == 5) {
+            // Numeric column for jumlah liter
+            cell
+              ..value = excel_lib.DoubleCellValue(t.jumlahLiter)
+              ..cellStyle = numberStyle;
+          } else {
+            cell
+              ..value = excel_lib.TextCellValue(row[i])
+              ..cellStyle = dataStyle;
+          }
+        }
+        rowIndex++;
+      }
+
+      // Remove default Sheet1 if exists
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      // Save file
+      final outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Simpan File Excel Transaksi',
+        fileName:
+            'data_transaksi_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+        allowedExtensions: ['xlsx'],
+        type: FileType.custom,
+      );
+
+      if (outputFile != null) {
+        final file = File(outputFile);
+        await file.writeAsBytes(excel.encode()!);
+
+        if (context.mounted) {
+          Navigator.pop(context); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export transaksi berhasil: $outputFile'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (context.mounted) {
+          Navigator.pop(context); // Close loading dialog
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal export transaksi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Export function for Kupon Minus table
+  Future<void> _exportKuponMinusToExcel() async {
+    final provider = Provider.of<TransaksiProvider>(context, listen: false);
+    final kuponMinusList = provider.kuponMinusList;
+
+    if (kuponMinusList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tidak ada data kupon minus untuk diexport'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Create Excel workbook
+      var excel = excel_lib.Excel.createExcel();
+      var sheet = excel['Kupon Minus'];
+
+      // Define cell styles
+      var headerStyle = excel_lib.CellStyle(
+        bold: true,
+        horizontalAlign: excel_lib.HorizontalAlign.Center,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      var dataStyle = excel_lib.CellStyle(
+        horizontalAlign: excel_lib.HorizontalAlign.Left,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      var numberStyle = excel_lib.CellStyle(
+        horizontalAlign: excel_lib.HorizontalAlign.Right,
+        verticalAlign: excel_lib.VerticalAlign.Center,
+      );
+
+      // Define headers
+      var headers = [
+        'Nomor Kupon',
+        'Jenis Kupon',
+        'Jenis BBM',
+        'Satker',
+        'Kuota Satker',
+        'Kuota Sisa',
+        'Minus',
+      ];
+
+      // Write headers
+      for (var i = 0; i < headers.length; i++) {
+        sheet.cell(
+            excel_lib.CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0),
+          )
+          ..value = excel_lib.TextCellValue(headers[i])
+          ..cellStyle = headerStyle;
+      }
+
+      // Write data rows
+      var rowIndex = 1;
+      for (final m in kuponMinusList) {
+        var row = [
+          m['nomor_kupon']?.toString() ?? '',
+          _jenisKuponMap[m['jenis_kupon_id']] ?? 'Unknown',
+          _jenisBBMMap[m['jenis_bbm_id']] ?? 'Unknown',
+          m['nama_satker']?.toString() ?? '',
+          m['kuota_satker']?.toString() ?? '0',
+          m['kuota_sisa']?.toString() ?? '0',
+          m['minus']?.toString() ?? '0',
+        ];
+
+        for (var i = 0; i < row.length; i++) {
+          var cell = sheet.cell(
+            excel_lib.CellIndex.indexByColumnRow(
+              columnIndex: i,
+              rowIndex: rowIndex,
+            ),
+          );
+
+          if (i >= 4) {
+            // Numeric columns (kuota_satker, kuota_sisa, minus)
+            final numValue = double.tryParse(row[i]) ?? 0.0;
+            cell
+              ..value = excel_lib.DoubleCellValue(numValue)
+              ..cellStyle = numberStyle;
+          } else {
+            cell
+              ..value = excel_lib.TextCellValue(row[i])
+              ..cellStyle = dataStyle;
+          }
+        }
+        rowIndex++;
+      }
+
+      // Remove default Sheet1 if exists
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      // Save file
+      final outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Simpan File Excel Kupon Minus',
+        fileName: 'kupon_minus_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+        allowedExtensions: ['xlsx'],
+        type: FileType.custom,
+      );
+
+      if (outputFile != null) {
+        final file = File(outputFile);
+        await file.writeAsBytes(excel.encode()!);
+
+        if (context.mounted) {
+          Navigator.pop(context); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Export kupon minus berhasil: $outputFile'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (context.mounted) {
+          Navigator.pop(context); // Close loading dialog
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal export kupon minus: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Build Kupon Minus Table widget
+  Widget _buildKuponMinusTable(BuildContext context) {
+    return Consumer<TransaksiProvider>(
+      builder: (context, provider, _) {
+        final kuponMinusList = provider.kuponMinusList;
+
+        if (kuponMinusList.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Text(
+                'Tidak ada data kupon minus',
+                style: TextStyle(fontSize: 18),
+              ),
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Nomor Kupon')),
+              DataColumn(label: Text('Jenis Kupon')),
+              DataColumn(label: Text('Jenis BBM')),
+              DataColumn(label: Text('Satker')),
+              DataColumn(label: Text('Kuota Satker')),
+              DataColumn(label: Text('Kuota Sisa')),
+              DataColumn(label: Text('Minus')),
+            ],
+            rows: kuponMinusList.map((m) {
+              return DataRow(
+                cells: [
+                  DataCell(Text(m['nomor_kupon']?.toString() ?? '')),
+                  DataCell(
+                    Text(_jenisKuponMap[m['jenis_kupon_id']] ?? 'Unknown'),
+                  ),
+                  DataCell(Text(_jenisBBMMap[m['jenis_bbm_id']] ?? 'Unknown')),
+                  DataCell(Text(m['nama_satker']?.toString() ?? '')),
+                  DataCell(Text(m['kuota_satker']?.toString() ?? '0')),
+                  DataCell(Text(m['kuota_sisa']?.toString() ?? '0')),
+                  DataCell(Text(m['minus']?.toString() ?? '0')),
+                ],
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Data Transaksi'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.file_download),
-            onPressed: () {
-              // TODO: Implement export
-            },
-            tooltip: 'Export Transaksi',
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Data Transaksi')),
       body: Column(
         children: [
           _buildFilterSection(),
+          // Transaksi Table Section
           Expanded(
+            flex: 2,
             child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: _buildTransaksiTable(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Data Transaksi BBM',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _exportTransaksiToExcel,
+                          icon: const Icon(Icons.download),
+                          label: const Text('Export'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: _buildTransaksiTable(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Kupon Minus Table Section
+          Expanded(
+            flex: 1,
+            child: Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Data Kupon Minus',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _exportKuponMinusToExcel,
+                          icon: const Icon(Icons.download),
+                          label: const Text('Export'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: _buildKuponMinusTable(context),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
