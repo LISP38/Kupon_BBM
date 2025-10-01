@@ -3,7 +3,7 @@ import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:provider/provider.dart';
-import 'package:get_it/get_it.dart';
+// import 'package:get_it/get_it.dart';
 import '../../providers/transaksi_provider.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../../data/models/transaksi_model.dart';
@@ -24,6 +24,10 @@ class _TransactionPageState extends State<TransactionPage> {
 
   // Map jenis kupon untuk tampilan
   final Map<int, String> _jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
+
+  // Filter tanggal
+  DateTime? _filterTanggalMulai;
+  DateTime? _filterTanggalSelesai;
 
   String _getBulanName(int bulan) {
     final namaBulan = [
@@ -57,6 +61,154 @@ class _TransactionPageState extends State<TransactionPage> {
     // Dapatkan tanggal terakhir dari bulan tersebut
     final lastDay = DateTime(expYear, expMonth + 1, 0).day;
     return '$lastDay ${_getBulanName(expMonth)} $expYear';
+  }
+
+  Future<void> _exportKuponMinusToExcel(BuildContext context) async {
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final transaksiProvider = Provider.of<TransaksiProvider>(
+        context,
+        listen: false,
+      );
+
+      final kuponMinusList = transaksiProvider.kuponMinusList;
+
+      if (kuponMinusList.isEmpty) {
+        if (context.mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Tidak ada data kupon minus untuk diexport'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Create a new Excel workbook and worksheet
+      var excel = Excel.createExcel();
+      var sheet = excel['Kupon Minus'];
+
+      // Define cell styles
+      var headerStyle = CellStyle(
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+        verticalAlign: VerticalAlign.Center,
+        textWrapping: TextWrapping.WrapText,
+      );
+
+      var dataStyle = CellStyle(
+        horizontalAlign: HorizontalAlign.Left,
+        verticalAlign: VerticalAlign.Center,
+        textWrapping: TextWrapping.WrapText,
+      );
+
+      var numberStyle = CellStyle(
+        horizontalAlign: HorizontalAlign.Right,
+        verticalAlign: VerticalAlign.Center,
+      );
+
+      // Adding header
+      var headers = [
+        'Nomor Kupon',
+        'Jenis Kupon',
+        'Jenis BBM',
+        'Satker',
+        'Kuota Satker',
+        'Kuota Sisa',
+        'Minus',
+      ];
+
+      // Write headers
+      for (var i = 0; i < headers.length; i++) {
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
+          ..value = TextCellValue(headers[i])
+          ..cellStyle = headerStyle;
+      }
+
+      // Adding data rows
+      var rowIndex = 1;
+      for (final m in kuponMinusList) {
+        var row = [
+          m['nomor_kupon']?.toString() ?? '',
+          _jenisKuponMap[m['jenis_kupon_id']] ?? 'Unknown',
+          _jenisBBMMap[m['jenis_bbm_id']] ?? 'Unknown',
+          m['nama_satker']?.toString() ?? '',
+          m['kuota_satker']?.toString() ?? '0',
+          m['kuota_sisa']?.toString() ?? '0',
+          m['minus']?.toString() ?? '0',
+        ];
+
+        // Write row data with appropriate styles
+        for (var i = 0; i < row.length; i++) {
+          var cell = sheet.cell(
+            CellIndex.indexByColumnRow(columnIndex: i, rowIndex: rowIndex),
+          );
+
+          if (i >= 4) {
+            // Numeric columns
+            final numValue = double.tryParse(row[i].toString()) ?? 0.0;
+            cell
+              ..value = DoubleCellValue(numValue)
+              ..cellStyle = numberStyle;
+          } else {
+            cell
+              ..value = TextCellValue(row[i].toString())
+              ..cellStyle = dataStyle;
+          }
+        }
+        rowIndex++;
+      }
+
+      // Remove default Sheet1 if exists
+      if (excel.sheets.containsKey('Sheet1')) {
+        excel.delete('Sheet1');
+      }
+
+      // Save file
+      final outputFile = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Excel file',
+        fileName: 'kupon_minus_${DateTime.now().millisecondsSinceEpoch}.xlsx',
+        allowedExtensions: ['xlsx'],
+        type: FileType.custom,
+      );
+
+      if (outputFile != null) {
+        final file = File(outputFile);
+        await file.writeAsBytes(excel.encode()!);
+
+        if (context.mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('File kupon minus berhasil disimpan'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (context.mounted) {
+          Navigator.pop(context);
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _exportToExcel(BuildContext context) async {
@@ -222,6 +374,41 @@ class _TransactionPageState extends State<TransactionPage> {
     });
   }
 
+  Future<void> _selectDateRange(BuildContext context) async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      initialDateRange: _filterTanggalMulai != null && _filterTanggalSelesai != null
+          ? DateTimeRange(start: _filterTanggalMulai!, end: _filterTanggalSelesai!)
+          : null,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Theme.of(context).primaryColor,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _filterTanggalMulai = picked.start;
+        _filterTanggalSelesai = picked.end;
+      });
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _filterTanggalMulai = null;
+      _filterTanggalSelesai = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -297,6 +484,23 @@ class _TransactionPageState extends State<TransactionPage> {
                   ),
                 ),
                 const SizedBox(width: 12),
+                // Filter Tanggal
+                OutlinedButton.icon(
+                  onPressed: () => _selectDateRange(context),
+                  icon: const Icon(Icons.date_range),
+                  label: Text(
+                    _filterTanggalMulai != null && _filterTanggalSelesai != null
+                        ? '${_filterTanggalMulai!.day}/${_filterTanggalMulai!.month}/${_filterTanggalMulai!.year} - ${_filterTanggalSelesai!.day}/${_filterTanggalSelesai!.month}/${_filterTanggalSelesai!.year}'
+                        : 'Pilih Range Tanggal',
+                  ),
+                ),
+                if (_filterTanggalMulai != null)
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    tooltip: 'Hapus Filter Tanggal',
+                    onPressed: _clearDateFilter,
+                  ),
+                const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: () {
                     Provider.of<TransaksiProvider>(
@@ -339,9 +543,19 @@ class _TransactionPageState extends State<TransactionPage> {
             const SizedBox(height: 16),
             Expanded(child: _buildTransaksiTable(context)),
             const SizedBox(height: 16),
-            const Text(
-              'Kupon Minus',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Kupon Minus',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _exportKuponMinusToExcel(context),
+                  icon: const Icon(Icons.download),
+                  label: const Text('Export Kupon Minus'),
+                ),
+              ],
             ),
             Expanded(child: _buildKuponMinusTable(context)),
           ],
@@ -676,7 +890,22 @@ class _TransactionPageState extends State<TransactionPage> {
                     ),
             )
             .toList();
-        if (transaksiList.isEmpty) {
+
+        // Apply date filter if set
+        List<TransaksiModel> filteredList = transaksiList;
+        if (_filterTanggalMulai != null && _filterTanggalSelesai != null) {
+          filteredList = transaksiList.where((t) {
+            try {
+              final transaksiDate = DateTime.parse(t.tanggalTransaksi);
+              return transaksiDate.isAfter(_filterTanggalMulai!.subtract(const Duration(days: 1))) &&
+                     transaksiDate.isBefore(_filterTanggalSelesai!.add(const Duration(days: 1)));
+            } catch (e) {
+              return true; // Include if date parsing fails
+            }
+          }).toList();
+        }
+
+        if (filteredList.isEmpty) {
           return const Center(child: Text('Tidak ada data transaksi.'));
         }
         return SingleChildScrollView(
@@ -691,7 +920,7 @@ class _TransactionPageState extends State<TransactionPage> {
               DataColumn(label: Text('Jumlah (L)')),
               DataColumn(label: Text('Aksi')),
             ],
-            rows: transaksiList
+            rows: filteredList
                 .map(
                   (t) => DataRow(
                     cells: [
@@ -908,123 +1137,162 @@ class _TransactionPageState extends State<TransactionPage> {
       listen: false,
     );
 
-    // Ambil data transaksi yang terhapus
-    await transaksiProvider.fetchDeletedTransaksi();
-
-    await showDialog(
+    // Show loading
+    showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Riwayat Transaksi Terhapus'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Consumer<TransaksiProvider>(
-            builder: (context, provider, _) {
-              final deletedTransaksi = provider.deletedTransaksiList;
-              if (deletedTransaksi.isEmpty) {
-                return const Center(
-                  child: Text('Tidak ada transaksi yang terhapus.'),
-                );
-              }
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('Tanggal')),
-                    DataColumn(label: Text('Nomor Kupon')),
-                    DataColumn(label: Text('Satker')),
-                    DataColumn(label: Text('Jenis BBM')),
-                    DataColumn(label: Text('Jumlah (L)')),
-                    DataColumn(label: Text('Aksi')),
-                  ],
-                  rows: deletedTransaksi
-                      .map(
-                        (t) => DataRow(
-                          cells: [
-                            DataCell(Text(t.tanggalTransaksi)),
-                            DataCell(Text(t.nomorKupon)),
-                            DataCell(Text(t.namaSatker)),
-                            DataCell(
-                              Text(_jenisBBMMap[t.jenisBbmId] ?? 'Unknown'),
-                            ),
-                            DataCell(Text(t.jumlahLiter.toString())),
-                            DataCell(
-                              IconButton(
-                                icon: const Icon(Icons.restore),
-                                tooltip: 'Kembalikan transaksi',
-                                onPressed: () async {
-                                  final confirm = await showDialog<bool>(
-                                    context: context,
-                                    builder: (ctx) => AlertDialog(
-                                      title: const Text('Kembalikan Transaksi'),
-                                      content: const Text(
-                                        'Yakin ingin mengembalikan transaksi ini?',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, false),
-                                          child: const Text('Batal'),
-                                        ),
-                                        ElevatedButton(
-                                          onPressed: () =>
-                                              Navigator.pop(ctx, true),
-                                          child: const Text('Kembalikan'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-
-                                  if (confirm == true) {
-                                    try {
-                                      await transaksiProvider.restoreTransaksi(
-                                        t.transaksiId,
-                                      );
-                                      // Refresh dashboard
-                                      await Provider.of<DashboardProvider>(
-                                        context,
-                                        listen: false,
-                                      ).fetchKupons();
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Transaksi berhasil dikembalikan',
-                                          ),
-                                        ),
-                                      );
-                                    } catch (e) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'Gagal mengembalikan transaksi: $e',
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                      .toList(),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Tutup'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
+
+    try {
+      // Ambil data transaksi yang terhapus
+      await transaksiProvider.fetchDeletedTransaksi();
+      
+      if (context.mounted) {
+        Navigator.pop(context); // Close loading
+      }
+
+      if (context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Riwayat Transaksi Terhapus'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Consumer<TransaksiProvider>(
+                builder: (context, provider, _) {
+                  final deletedTransaksi = provider.deletedTransaksiList;
+                  if (deletedTransaksi.isEmpty) {
+                    return const Center(
+                      child: Text('Tidak ada transaksi yang terhapus.'),
+                    );
+                  }
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Tanggal')),
+                        DataColumn(label: Text('Nomor Kupon')),
+                        DataColumn(label: Text('Satker')),
+                        DataColumn(label: Text('Jenis BBM')),
+                        DataColumn(label: Text('Jumlah (L)')),
+                        DataColumn(label: Text('Aksi')),
+                      ],
+                      rows: deletedTransaksi
+                          .map(
+                            (t) {
+                              // Safe parsing for jenisBbmId
+                              int jenisBbmId = 0;
+                              jenisBbmId = t.jenisBbmId;
+                            
+                              // Safe parsing for jumlahLiter
+                              double jumlahLiter = 0.0;
+                              jumlahLiter = t.jumlahLiter;
+                            
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(t.tanggalTransaksi)),
+                                  DataCell(Text(t.nomorKupon)),
+                                  DataCell(Text(t.namaSatker)),
+                                  DataCell(
+                                    Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown'),
+                                  ),
+                                  DataCell(Text(jumlahLiter.toString())),
+                                  DataCell(
+                                    IconButton(
+                                      icon: const Icon(Icons.restore),
+                                      tooltip: 'Kembalikan transaksi',
+                                      onPressed: () async {
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Kembalikan Transaksi'),
+                                            content: const Text(
+                                              'Yakin ingin mengembalikan transaksi ini?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, false),
+                                                child: const Text('Batal'),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, true),
+                                                child: const Text('Kembalikan'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+
+                                        if (confirm == true) {
+                                          try {
+                                            await transaksiProvider.restoreTransaksi(
+                                              t.transaksiId,
+                                            );
+                                            // Refresh dashboard
+                                            await Provider.of<DashboardProvider>(
+                                              context,
+                                              listen: false,
+                                            ).fetchKupons();
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Transaksi berhasil dikembalikan',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Gagal mengembalikan transaksi: $e',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          )
+                          .toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Tutup'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // Close loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error mengambil data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildKuponMinusTable(BuildContext context) {
@@ -1045,33 +1313,46 @@ class _TransactionPageState extends State<TransactionPage> {
               DataColumn(label: Text('Kuota Satker')),
               DataColumn(label: Text('Kuota Sisa')),
               DataColumn(label: Text('Minus')),
-              DataColumn(label: Text('Aksi')),
             ],
             rows: minus
                 .map(
-                  (m) => DataRow(
-                    cells: [
-                      DataCell(Text(m['nomor_kupon'].toString())),
-                      DataCell(
-                        Text(_jenisKuponMap[m['jenis_kupon_id']] ?? 'Unknown'),
-                      ),
-                      DataCell(
-                        Text(_jenisBBMMap[m['jenis_bbm_id']] ?? 'Unknown'),
-                      ),
-                      DataCell(Text(m['nama_satker'].toString())),
-                      DataCell(Text('${m['kuota_satker']} L')),
-                      DataCell(Text('${m['kuota_sisa']} L')),
-                      DataCell(Text('${m['minus']} L')),
-                      DataCell(
-                        IconButton(
-                          icon: const Icon(Icons.download),
-                          onPressed: () {
-                            /* TODO: Export kupon minus */
-                          },
+                  (m) {
+                    // Safe parsing untuk jenis_kupon_id
+                    int jenisKuponId = 0;
+                    if (m['jenis_kupon_id'] is int) {
+                      jenisKuponId = m['jenis_kupon_id'];
+                    } else if (m['jenis_kupon_id'] is double) {
+                      jenisKuponId = (m['jenis_kupon_id'] as double).toInt();
+                    } else if (m['jenis_kupon_id'] is String) {
+                      jenisKuponId = int.tryParse(m['jenis_kupon_id'].toString()) ?? 0;
+                    }
+
+                    // Safe parsing untuk jenis_bbm_id
+                    int jenisBbmId = 0;
+                    if (m['jenis_bbm_id'] is int) {
+                      jenisBbmId = m['jenis_bbm_id'];
+                    } else if (m['jenis_bbm_id'] is double) {
+                      jenisBbmId = (m['jenis_bbm_id'] as double).toInt();
+                    } else if (m['jenis_bbm_id'] is String) {
+                      jenisBbmId = int.tryParse(m['jenis_bbm_id'].toString()) ?? 0;
+                    }
+
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(m['nomor_kupon']?.toString() ?? '')),
+                        DataCell(
+                          Text(_jenisKuponMap[jenisKuponId] ?? 'Unknown'),
                         ),
-                      ),
-                    ],
-                  ),
+                        DataCell(
+                          Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown'),
+                        ),
+                        DataCell(Text(m['nama_satker']?.toString() ?? '')),
+                        DataCell(Text('${m['kuota_satker'] ?? 0} L')),
+                        DataCell(Text('${m['kuota_sisa'] ?? 0} L')),
+                        DataCell(Text('${m['minus'] ?? 0} L')),
+                      ],
+                    );
+                  },
                 )
                 .toList(),
           ),
