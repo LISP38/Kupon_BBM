@@ -3,13 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:kupon_bbm_app/core/di/dependency_injection.dart';
 import 'package:kupon_bbm_app/core/themes/app_theme.dart';
-import 'package:kupon_bbm_app/data/datasources/excel_datasource.dart';
-import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/kupon_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/master_data_repository.dart';
 import 'package:kupon_bbm_app/presentation/pages/main_page.dart';
 import 'package:kupon_bbm_app/presentation/providers/dashboard_provider.dart';
-import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
+import 'package:kupon_bbm_app/presentation/providers/enhanced_import_provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/kupon_provider.dart';
 import 'package:kupon_bbm_app/presentation/providers/master_data_provider.dart';
 import 'package:provider/provider.dart';
@@ -35,13 +33,6 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-          create: (_) => ImportProvider(
-            getIt<ExcelDatasource>(),
-            getIt<KuponRepository>(),
-            getIt<KendaraanRepository>(),
-          ),
-        ),
-        ChangeNotifierProvider(
           create: (_) => DashboardProvider(getIt<KuponRepository>()),
         ),
         ChangeNotifierProvider(
@@ -53,6 +44,7 @@ void main() async {
         ChangeNotifierProvider(
           create: (_) => MasterDataProvider(getIt<MasterDataRepository>()),
         ),
+        ChangeNotifierProvider(create: (_) => getIt<EnhancedImportProvider>()),
       ],
       child: const MyApp(),
     ),

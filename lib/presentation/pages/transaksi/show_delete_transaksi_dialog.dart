@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../../domain/entities/transaksi_entity.dart';
-import '../../providers/transaksi_provider.dart';
 
 Future<bool?> showDeleteTransaksiDialog({
   required BuildContext context,

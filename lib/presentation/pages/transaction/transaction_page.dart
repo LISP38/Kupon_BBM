@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 // import 'package:get_it/get_it.dart';
 import '../../providers/transaksi_provider.dart';
@@ -283,13 +284,13 @@ class _TransactionPageState extends State<TransactionPage> {
 
         // Get kendaraan data from repository
         final kendaraanRepo = getIt<KendaraanRepository>();
-        final kendaraan = await kendaraanRepo.getKendaraanById(
-          kupon.kendaraanId,
-        );
+        final kendaraan = kupon.kendaraanId != null
+            ? await kendaraanRepo.getKendaraanById(kupon.kendaraanId!)
+            : null;
 
-        // Format nopol with VIII pattern
+        // Format nopol dengan format standar nomor-kode
         final noPolWithKode = kendaraan != null
-            ? '${kendaraan.noPolNomor}-VIII-${kendaraan.noPolKode}'
+            ? '${kendaraan.noPolNomor}-${kendaraan.noPolKode}'
             : 'N/A';
 
         var row = [
@@ -379,8 +380,12 @@ class _TransactionPageState extends State<TransactionPage> {
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      initialDateRange: _filterTanggalMulai != null && _filterTanggalSelesai != null
-          ? DateTimeRange(start: _filterTanggalMulai!, end: _filterTanggalSelesai!)
+      initialDateRange:
+          _filterTanggalMulai != null && _filterTanggalSelesai != null
+          ? DateTimeRange(
+              start: _filterTanggalMulai!,
+              end: _filterTanggalSelesai!,
+            )
           : null,
       builder: (context, child) {
         return Theme(
@@ -645,7 +650,9 @@ class _TransactionPageState extends State<TransactionPage> {
 
       // Get kendaraan data from repository
       final kendaraanRepo = getIt<KendaraanRepository>();
-      final kendaraan = await kendaraanRepo.getKendaraanById(kupon.kendaraanId);
+      final kendaraan = kupon.kendaraanId != null
+          ? await kendaraanRepo.getKendaraanById(kupon.kendaraanId!)
+          : null;
 
       // Format nopol with VIII pattern
       final noPolWithKode = kendaraan != null
@@ -724,9 +731,7 @@ class _TransactionPageState extends State<TransactionPage> {
         )
         .toList();
     final _formKey = GlobalKey<FormState>();
-    final _tanggalController = TextEditingController(
-      text: DateTime.now().toIso8601String().substring(0, 10),
-    );
+    final _tanggalController = TextEditingController();
     String? _nomorKupon;
     double? _jumlahLiter;
     await showDialog(
@@ -741,14 +746,55 @@ class _TransactionPageState extends State<TransactionPage> {
               children: [
                 TextFormField(
                   controller: _tanggalController,
-                  decoration: InputDecoration(labelText: 'Tanggal'),
+                  decoration: const InputDecoration(
+                    labelText: 'Tanggal',
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Pilih tanggal transaksi'
+                      : null,
                   readOnly: true,
+                  onTap: () async {
+                    final DateTime? pickedDate = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (pickedDate != null) {
+                      _tanggalController.text = DateFormat(
+                        'yyyy-MM-dd',
+                      ).format(pickedDate);
+                    }
+                  },
                 ),
                 Autocomplete<String>(
                   optionsBuilder: (TextEditingValue textEditingValue) {
-                    return kuponOptions.where(
-                      (option) => option.contains(textEditingValue.text),
+                    if (textEditingValue.text.isEmpty) {
+                      return kuponOptions;
+                    }
+                    print(
+                      '[AUTOCOMPLETE DEBUG] Input text: "${textEditingValue.text}"',
                     );
+                    print(
+                      '[AUTOCOMPLETE DEBUG] Total kupon options: ${kuponOptions.length}',
+                    );
+
+                    final filtered = kuponOptions.where((option) {
+                      final nomorKupon = option.split('/')[0];
+                      final matches = nomorKupon.startsWith(
+                        textEditingValue.text,
+                      );
+                      print(
+                        '[AUTOCOMPLETE DEBUG] Option: $option, Nomor: $nomorKupon, Matches: $matches',
+                      );
+                      return matches;
+                    });
+
+                    print(
+                      '[AUTOCOMPLETE DEBUG] Filtered results count: ${filtered.length}',
+                    );
+                    return filtered;
                   },
                   onSelected: (value) {
                     _nomorKupon = value;
@@ -897,8 +943,12 @@ class _TransactionPageState extends State<TransactionPage> {
           filteredList = transaksiList.where((t) {
             try {
               final transaksiDate = DateTime.parse(t.tanggalTransaksi);
-              return transaksiDate.isAfter(_filterTanggalMulai!.subtract(const Duration(days: 1))) &&
-                     transaksiDate.isBefore(_filterTanggalSelesai!.add(const Duration(days: 1)));
+              return transaksiDate.isAfter(
+                    _filterTanggalMulai!.subtract(const Duration(days: 1)),
+                  ) &&
+                  transaksiDate.isBefore(
+                    _filterTanggalSelesai!.add(const Duration(days: 1)),
+                  );
             } catch (e) {
               return true; // Include if date parsing fails
             }
@@ -1077,9 +1127,28 @@ class _TransactionPageState extends State<TransactionPage> {
               children: [
                 TextFormField(
                   controller: _tanggalController,
-                  decoration: const InputDecoration(labelText: 'Tanggal'),
+                  decoration: const InputDecoration(
+                    labelText: 'Tanggal',
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
                   validator: (v) =>
                       v == null || v.isEmpty ? 'Wajib diisi' : null,
+                  readOnly: true,
+                  onTap: () async {
+                    DateTime? pickedDate = await showDatePicker(
+                      context: context,
+                      initialDate:
+                          DateTime.tryParse(_tanggalController.text) ??
+                          DateTime.now(),
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                    );
+                    if (pickedDate != null) {
+                      _tanggalController.text = DateFormat(
+                        'yyyy-MM-dd',
+                      ).format(pickedDate);
+                    }
+                  },
                 ),
                 TextFormField(
                   controller: _jumlahController,
@@ -1147,7 +1216,7 @@ class _TransactionPageState extends State<TransactionPage> {
     try {
       // Ambil data transaksi yang terhapus
       await transaksiProvider.fetchDeletedTransaksi();
-      
+
       if (context.mounted) {
         Navigator.pop(context); // Close loading
       }
@@ -1178,96 +1247,92 @@ class _TransactionPageState extends State<TransactionPage> {
                         DataColumn(label: Text('Jumlah (L)')),
                         DataColumn(label: Text('Aksi')),
                       ],
-                      rows: deletedTransaksi
-                          .map(
-                            (t) {
-                              // Safe parsing for jenisBbmId
-                              int jenisBbmId = 0;
-                              jenisBbmId = t.jenisBbmId;
-                            
-                              // Safe parsing for jumlahLiter
-                              double jumlahLiter = 0.0;
-                              jumlahLiter = t.jumlahLiter;
-                            
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(t.tanggalTransaksi)),
-                                  DataCell(Text(t.nomorKupon)),
-                                  DataCell(Text(t.namaSatker)),
-                                  DataCell(
-                                    Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown'),
-                                  ),
-                                  DataCell(Text(jumlahLiter.toString())),
-                                  DataCell(
-                                    IconButton(
-                                      icon: const Icon(Icons.restore),
-                                      tooltip: 'Kembalikan transaksi',
-                                      onPressed: () async {
-                                        final confirm = await showDialog<bool>(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            title: const Text('Kembalikan Transaksi'),
-                                            content: const Text(
-                                              'Yakin ingin mengembalikan transaksi ini?',
+                      rows: deletedTransaksi.map((t) {
+                        // Safe parsing for jenisBbmId
+                        int jenisBbmId = 0;
+                        jenisBbmId = t.jenisBbmId;
+
+                        // Safe parsing for jumlahLiter
+                        double jumlahLiter = 0.0;
+                        jumlahLiter = t.jumlahLiter;
+
+                        return DataRow(
+                          cells: [
+                            DataCell(Text(t.tanggalTransaksi)),
+                            DataCell(Text(t.nomorKupon)),
+                            DataCell(Text(t.namaSatker)),
+                            DataCell(
+                              Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown'),
+                            ),
+                            DataCell(Text(jumlahLiter.toString())),
+                            DataCell(
+                              IconButton(
+                                icon: const Icon(Icons.restore),
+                                tooltip: 'Kembalikan transaksi',
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Kembalikan Transaksi'),
+                                      content: const Text(
+                                        'Yakin ingin mengembalikan transaksi ini?',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Batal'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Kembalikan'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+
+                                  if (confirm == true) {
+                                    try {
+                                      await transaksiProvider.restoreTransaksi(
+                                        t.transaksiId,
+                                      );
+                                      // Refresh dashboard
+                                      await Provider.of<DashboardProvider>(
+                                        context,
+                                        listen: false,
+                                      ).fetchKupons();
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Transaksi berhasil dikembalikan',
                                             ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(ctx, false),
-                                                child: const Text('Batal'),
-                                              ),
-                                              ElevatedButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(ctx, true),
-                                                child: const Text('Kembalikan'),
-                                              ),
-                                            ],
                                           ),
                                         );
-
-                                        if (confirm == true) {
-                                          try {
-                                            await transaksiProvider.restoreTransaksi(
-                                              t.transaksiId,
-                                            );
-                                            // Refresh dashboard
-                                            await Provider.of<DashboardProvider>(
-                                              context,
-                                              listen: false,
-                                            ).fetchKupons();
-                                            if (context.mounted) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text(
-                                                    'Transaksi berhasil dikembalikan',
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          } catch (e) {
-                                            if (context.mounted) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Gagal mengembalikan transaksi: $e',
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          )
-                          .toList(),
+                                      }
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Gagal mengembalikan transaksi: $e',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        );
+                      }).toList(),
                     ),
                   );
                 },
@@ -1314,47 +1379,40 @@ class _TransactionPageState extends State<TransactionPage> {
               DataColumn(label: Text('Kuota Sisa')),
               DataColumn(label: Text('Minus')),
             ],
-            rows: minus
-                .map(
-                  (m) {
-                    // Safe parsing untuk jenis_kupon_id
-                    int jenisKuponId = 0;
-                    if (m['jenis_kupon_id'] is int) {
-                      jenisKuponId = m['jenis_kupon_id'];
-                    } else if (m['jenis_kupon_id'] is double) {
-                      jenisKuponId = (m['jenis_kupon_id'] as double).toInt();
-                    } else if (m['jenis_kupon_id'] is String) {
-                      jenisKuponId = int.tryParse(m['jenis_kupon_id'].toString()) ?? 0;
-                    }
+            rows: minus.map((m) {
+              // Safe parsing untuk jenis_kupon_id
+              int jenisKuponId = 0;
+              if (m['jenis_kupon_id'] is int) {
+                jenisKuponId = m['jenis_kupon_id'];
+              } else if (m['jenis_kupon_id'] is double) {
+                jenisKuponId = (m['jenis_kupon_id'] as double).toInt();
+              } else if (m['jenis_kupon_id'] is String) {
+                jenisKuponId =
+                    int.tryParse(m['jenis_kupon_id'].toString()) ?? 0;
+              }
 
-                    // Safe parsing untuk jenis_bbm_id
-                    int jenisBbmId = 0;
-                    if (m['jenis_bbm_id'] is int) {
-                      jenisBbmId = m['jenis_bbm_id'];
-                    } else if (m['jenis_bbm_id'] is double) {
-                      jenisBbmId = (m['jenis_bbm_id'] as double).toInt();
-                    } else if (m['jenis_bbm_id'] is String) {
-                      jenisBbmId = int.tryParse(m['jenis_bbm_id'].toString()) ?? 0;
-                    }
+              // Safe parsing untuk jenis_bbm_id
+              int jenisBbmId = 0;
+              if (m['jenis_bbm_id'] is int) {
+                jenisBbmId = m['jenis_bbm_id'];
+              } else if (m['jenis_bbm_id'] is double) {
+                jenisBbmId = (m['jenis_bbm_id'] as double).toInt();
+              } else if (m['jenis_bbm_id'] is String) {
+                jenisBbmId = int.tryParse(m['jenis_bbm_id'].toString()) ?? 0;
+              }
 
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(m['nomor_kupon']?.toString() ?? '')),
-                        DataCell(
-                          Text(_jenisKuponMap[jenisKuponId] ?? 'Unknown'),
-                        ),
-                        DataCell(
-                          Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown'),
-                        ),
-                        DataCell(Text(m['nama_satker']?.toString() ?? '')),
-                        DataCell(Text('${m['kuota_satker'] ?? 0} L')),
-                        DataCell(Text('${m['kuota_sisa'] ?? 0} L')),
-                        DataCell(Text('${m['minus'] ?? 0} L')),
-                      ],
-                    );
-                  },
-                )
-                .toList(),
+              return DataRow(
+                cells: [
+                  DataCell(Text(m['nomor_kupon']?.toString() ?? '')),
+                  DataCell(Text(_jenisKuponMap[jenisKuponId] ?? 'Unknown')),
+                  DataCell(Text(_jenisBBMMap[jenisBbmId] ?? 'Unknown')),
+                  DataCell(Text(m['nama_satker']?.toString() ?? '')),
+                  DataCell(Text('${m['kuota_satker'] ?? 0} L')),
+                  DataCell(Text('${m['kuota_sisa'] ?? 0} L')),
+                  DataCell(Text('${m['minus'] ?? 0} L')),
+                ],
+              );
+            }).toList(),
           ),
         );
       },

@@ -23,14 +23,29 @@ class _MainPageState extends State<MainPage> {
       // ImportPage with callback to refresh dashboard
       return ImportPage(
         onImportSuccess: () {
-          // Find DashboardProvider and refresh
-          if (_dashboardKey.currentContext != null) {
-            final provider = Provider.of<DashboardProvider>(
-              _dashboardKey.currentContext!,
-              listen: false,
-            );
-            provider.fetchKupons();
-          }
+          // Use addPostFrameCallback for safer widget tree access
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+
+            try {
+              // Try to get provider from root context first
+              final provider = context.read<DashboardProvider>();
+              provider.fetchKupons();
+            } catch (e) {
+              // Fallback: try with dashboard key context
+              try {
+                if (_dashboardKey.currentContext != null) {
+                  final provider = Provider.of<DashboardProvider>(
+                    _dashboardKey.currentContext!,
+                    listen: false,
+                  );
+                  provider.fetchKupons();
+                }
+              } catch (e2) {
+                print('Could not refresh dashboard: $e2');
+              }
+            }
+          });
         },
       );
     } else if (index == 1) {

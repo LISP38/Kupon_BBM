@@ -28,9 +28,6 @@ class _DashboardPageState extends State<DashboardPage> {
   // Map jenis BBM untuk tampilan
   final Map<int, String> _jenisBBMMap = {1: 'Pertamax', 2: 'Pertamina Dex'};
 
-  // Map jenis kupon untuk tampilan
-  final Map<int, String> _jenisKuponMap = {1: 'Ranjen', 2: 'Dukungan'};
-
   // Mendapatkan NoPol dari kendaraanId
   String _getNopolByKendaraanId(int kendaraanId) {
     final kendaraan = _kendaraanList.firstWhere(

@@ -1,5 +1,5 @@
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
-import 'package:kupon_bbm_app/domain/repositories/kendaraan_repository.dart';
+import 'package:kupon_bbm_app/data/models/satker_dukungan_model.dart';
 
 class KuponValidationResult {
   final bool isValid;
@@ -9,9 +9,7 @@ class KuponValidationResult {
 }
 
 class KuponValidator {
-  final KendaraanRepository _kendaraanRepository;
-
-  KuponValidator(this._kendaraanRepository);
+  KuponValidator();
 
   // Validasi satu kendaraan hanya boleh memiliki satu jenis BBM
   KuponValidationResult validateBBMPerKendaraan(
@@ -105,31 +103,149 @@ class KuponValidator {
     return KuponValidationResult(isValid: true);
   }
 
-  // Validasi keseluruhan untuk satu kupon
-  KuponValidationResult validateKupon(
+  // Validasi duplikat berdasarkan nomor kupon
+  KuponValidationResult validateDuplicate(
     List<KuponModel> existingKupons,
     KuponModel newKupon,
     String noPol,
   ) {
+    // Cek apakah nomor kupon sudah ada dengan periode dan jenis yang sama
+    final duplicate = existingKupons
+        .where(
+          (k) =>
+              k.nomorKupon == newKupon.nomorKupon &&
+              k.bulanTerbit == newKupon.bulanTerbit &&
+              k.tahunTerbit == newKupon.tahunTerbit &&
+              k.jenisKuponId == newKupon.jenisKuponId,
+        )
+        .toList();
+
+    if (duplicate.isNotEmpty) {
+      return KuponValidationResult(
+        isValid: false,
+        messages: [
+          'Kupon ${newKupon.nomorKupon} sudah ada di sistem untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
+        ],
+      );
+    }
+
+    return KuponValidationResult(isValid: true);
+  }
+
+  // Validasi eligibilitas satker untuk dukungan
+  KuponValidationResult validateSatkerEligibilityForDukungan(
+    KuponModel newKupon,
+  ) {
+    if (newKupon.jenisKuponId == 2) {
+      // 2 = DUKUNGAN
+      if (!EligibleSatker.isEligibleForDukungan(newKupon.namaSatker)) {
+        return KuponValidationResult(
+          isValid: false,
+          messages: [
+            'Satker ${newKupon.namaSatker} tidak memiliki hak untuk mendapatkan kupon DUKUNGAN',
+          ],
+        );
+      }
+    }
+    return KuponValidationResult(isValid: true);
+  }
+
+  // Validasi dukungan bergantung pada ranjen
+  KuponValidationResult validateDukunganRequiresRanjen(
+    List<KuponModel> existingKupons,
+    KuponModel newKupon, {
+    List<KuponModel>? currentBatchKupons, // Kupon dalam batch import yang sama
+  }) {
+    if (newKupon.jenisKuponId == 2) {
+      // 2 = DUKUNGAN
+      // Gabungkan existing kupons dengan current batch kupons
+      final allKupons = [
+        ...existingKupons,
+        if (currentBatchKupons != null) ...currentBatchKupons,
+      ];
+
+      // Cek apakah ada kupon RANJEN untuk satker yang sama di periode yang sama
+      final ranjenExists = allKupons.any(
+        (k) =>
+            k.satkerId == newKupon.satkerId &&
+            k.jenisKuponId == 1 && // 1 = RANJEN
+            k.bulanTerbit == newKupon.bulanTerbit &&
+            k.tahunTerbit == newKupon.tahunTerbit,
+      );
+
+      if (!ranjenExists) {
+        return KuponValidationResult(
+          isValid: false,
+          messages: [
+            'Kupon DUKUNGAN memerlukan kupon RANJEN untuk satker ${newKupon.namaSatker} pada periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
+          ],
+        );
+      }
+    }
+    return KuponValidationResult(isValid: true);
+  }
+
+  // Validasi keseluruhan untuk satu kupon
+  KuponValidationResult validateKupon(
+    List<KuponModel> existingKupons,
+    KuponModel newKupon,
+    String noPol, {
+    List<KuponModel>? currentBatchKupons, // Kupon dalam batch import yang sama
+  }) {
     final List<String> allMessages = [];
 
-    // Validasi jenis BBM
-    final bbmResult = validateBBMPerKendaraan(existingKupons, newKupon, noPol);
-    if (!bbmResult.isValid) {
-      allMessages.addAll(bbmResult.messages);
+    // Validasi duplikat PERTAMA - ini yang paling penting
+    final duplicateResult = validateDuplicate(existingKupons, newKupon, noPol);
+    if (!duplicateResult.isValid) {
+      allMessages.addAll(duplicateResult.messages);
     }
 
-    // Validasi jumlah kupon per bulan
-    final kuponPerBulanResult = validateKuponPerBulan(
-      existingKupons,
-      newKupon,
-      noPol,
-    );
-    if (!kuponPerBulanResult.isValid) {
-      allMessages.addAll(kuponPerBulanResult.messages);
+    if (newKupon.jenisKuponId == 1) {
+      // VALIDASI RANJEN (berbasis kendaraan)
+      if (newKupon.kendaraanId == null) {
+        allMessages.add('Kupon RANJEN harus memiliki data kendaraan');
+      } else {
+        // Validasi jenis BBM
+        final bbmResult = validateBBMPerKendaraan(
+          existingKupons,
+          newKupon,
+          noPol,
+        );
+        if (!bbmResult.isValid) {
+          allMessages.addAll(bbmResult.messages);
+        }
+
+        // Validasi jumlah kupon per bulan
+        final kuponPerBulanResult = validateKuponPerBulan(
+          existingKupons,
+          newKupon,
+          noPol,
+        );
+        if (!kuponPerBulanResult.isValid) {
+          allMessages.addAll(kuponPerBulanResult.messages);
+        }
+      }
+    } else if (newKupon.jenisKuponId == 2) {
+      // VALIDASI DUKUNGAN (berbasis satker)
+
+      // Validasi eligibilitas satker
+      final eligibilityResult = validateSatkerEligibilityForDukungan(newKupon);
+      if (!eligibilityResult.isValid) {
+        allMessages.addAll(eligibilityResult.messages);
+      }
+
+      // Validasi ketergantungan pada RANJEN
+      final ranjenDependencyResult = validateDukunganRequiresRanjen(
+        existingKupons,
+        newKupon,
+        currentBatchKupons: currentBatchKupons,
+      );
+      if (!ranjenDependencyResult.isValid) {
+        allMessages.addAll(ranjenDependencyResult.messages);
+      }
     }
 
-    // Validasi range tanggal
+    // Validasi range tanggal (berlaku untuk kedua jenis)
     final dateResult = validateDateRange(newKupon);
     if (!dateResult.isValid) {
       allMessages.addAll(dateResult.messages);

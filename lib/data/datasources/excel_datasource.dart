@@ -8,11 +8,15 @@ import 'package:kupon_bbm_app/data/validators/kupon_validator.dart';
 class ExcelParseResult {
   final List<KuponModel> kupons;
   final List<KendaraanModel> newKendaraans;
+  final List<KuponModel> duplicateKupons;
+  final List<KendaraanModel> duplicateKendaraans;
   final List<String> validationMessages;
 
   ExcelParseResult({
     required this.kupons,
     required this.newKendaraans,
+    this.duplicateKupons = const [],
+    this.duplicateKendaraans = const [],
     required this.validationMessages,
   });
 }
@@ -46,14 +50,15 @@ class ExcelDatasource {
 
   Future<ExcelParseResult> parseExcelFile(
     String filePath,
-    List<KuponModel> existingKupons, {
-    bool allowReplace = false,
-  }) async {
+    List<KuponModel> existingKupons,
+  ) async {
     final bytes = File(filePath).readAsBytesSync();
     final excel = Excel.decodeBytes(bytes);
 
     final kupons = <KuponModel>[];
     final newKendaraans = <KendaraanModel>[];
+    final duplicateKupons = <KuponModel>[];
+    final duplicateKendaraans = <KendaraanModel>[];
     final validationMessages = <String>[];
 
     // Hanya ambil sheet pertama
@@ -63,46 +68,84 @@ class ExcelDatasource {
     final sheet = excel.tables[excel.tables.keys.first]!;
 
     // Langsung proses semua baris sebagai data (tanpa header)
-    for (var row in sheet.rows) {
+    for (int i = 0; i < sheet.rows.length; i++) {
+      final row = sheet.rows[i];
+      final rowNumber = i + 1;
       try {
         // Parse data dari row
         final data = await _parseRow(row);
         if (data != null) {
           final (kupon, kendaraan) = data;
 
-          if (kendaraan != null) {
-            // Validasi business rules
-            final validationResult = await _kuponValidator.validateKupon(
-              existingKupons,
-              kupon,
-              '${kendaraan.noPolKode} ${kendaraan.noPolNomor}',
+          // Validasi business rules - berbeda untuk RANJEN dan DUKUNGAN
+          final noPol = kendaraan != null
+              ? '${kendaraan.noPolNomor}-${kendaraan.noPolKode}'
+              : 'N/A (DUKUNGAN)';
+
+          final validationResult = _kuponValidator.validateKupon(
+            existingKupons,
+            kupon,
+            noPol,
+            currentBatchKupons:
+                kupons, // Kupon yang sudah diproses dalam batch ini
+          );
+
+          print(
+            'DEBUG - Validating kupon ${kupon.nomorKupon}: ${validationResult.isValid}',
+          );
+          if (!validationResult.isValid) {
+            print('DEBUG - Validation messages: ${validationResult.messages}');
+          }
+
+          if (!validationResult.isValid) {
+            // Cek apakah ini duplikat atau error lain
+            final isDuplicate = validationResult.messages.any(
+              (msg) =>
+                  msg.toLowerCase().contains('sudah ada') ||
+                  msg.toLowerCase().contains('duplikat') ||
+                  (msg.toLowerCase().contains('kupon') &&
+                      msg.toLowerCase().contains('sistem')),
             );
 
-            if (!validationResult.isValid) {
+            print(
+              'DEBUG - Is duplicate: $isDuplicate for kupon ${kupon.nomorKupon}',
+            );
+
+            if (isDuplicate) {
+              // Ini duplikat - masukkan ke list duplikat untuk preview
+              duplicateKupons.add(kupon);
+              if (kendaraan != null) {
+                duplicateKendaraans.add(kendaraan);
+              }
+              validationMessages.add(
+                'Baris $rowNumber: DUPLIKAT - ${validationResult.messages.join(", ")}',
+              );
+            } else {
+              // Error lain - masukkan ke validation messages saja
               validationMessages.addAll(
                 validationResult.messages.map(
-                  (msg) => 'Baris ${sheet.rows.indexOf(row) + 1}: $msg',
+                  (msg) => 'Baris $rowNumber: $msg',
                 ),
               );
-              if (!allowReplace) {
-                continue; // Skip row ini jika tidak valid dan bukan replace mode
-              }
             }
-
+          } else {
+            // Validasi berhasil - ini kupon baru
             kupons.add(kupon);
-            newKendaraans.add(kendaraan);
+            if (kendaraan != null) {
+              newKendaraans.add(kendaraan);
+            }
           }
         }
       } catch (e) {
-        validationMessages.add(
-          'Error pada baris ${sheet.rows.indexOf(row) + 1}: ${e.toString()}',
-        );
+        validationMessages.add('Error pada baris $rowNumber: ${e.toString()}');
       }
     }
 
     return ExcelParseResult(
       kupons: kupons,
       newKendaraans: newKendaraans,
+      duplicateKupons: duplicateKupons,
+      duplicateKendaraans: duplicateKendaraans,
       validationMessages: validationMessages,
     );
   }
@@ -129,14 +172,25 @@ class ExcelDatasource {
       return null;
     }
 
-    // Skip if it looks like a header
+    // Skip if it looks like a header - lebih comprehensive check
     if (cell0.toLowerCase().contains('jenis') ||
-        cell1.toLowerCase().contains('no')) {
-      print('Debug - Skipping header row');
+        cell1.toLowerCase().contains('no') ||
+        cell0.toLowerCase().contains('kupon') ||
+        cell1.toLowerCase().contains('kupon')) {
+      print('Debug - Skipping header row: "$cell0", "$cell1"');
+      return null;
+    }
+
+    // Skip jika baris tidak memiliki data minimal (jenisKupon dan noKupon)
+    if (cell0.trim().isEmpty || cell1.trim().isEmpty) {
+      print(
+        'Debug - Skipping incomplete row: jenisKupon="$cell0", noKupon="$cell1"',
+      );
       return null;
     }
 
     final jenisKupon = cell0;
+    print('Debug - Jenis Kupon: "$jenisKupon"'); // Debug line
 
     // No Kupon - DIPERBAIKI untuk handle berbagai format
     final noKuponStr = _getCellString(row, 1);
@@ -176,20 +230,30 @@ class ExcelDatasource {
     final jenisRanmor = _getCellString(row, 4);
     final satker = _getCellString(row, 5);
 
-    // No Pol - DIPERBAIKI dengan debug info
+    // No Pol - Handle untuk kupon DUKUNGAN yang bisa kosong
     final noPolStr = _getCellString(row, 6);
     print('Debug - No Pol raw: "$noPolStr"'); // Debug line
 
-    if (noPolStr.isEmpty) {
-      throw Exception('No Pol tidak boleh kosong');
-    }
+    // Untuk kupon DUKUNGAN, No Pol bisa kosong
+    final isDukungan = jenisKupon.toLowerCase().contains('dukungan');
+    String? noPol;
 
-    // Extract angka dari No Pol
-    final noPolMatch = RegExp(r'\d+').firstMatch(noPolStr);
-    if (noPolMatch == null) {
-      throw Exception('No Pol harus mengandung angka. Ditemukan: "$noPolStr"');
+    if (noPolStr.isEmpty) {
+      if (!isDukungan) {
+        throw Exception('No Pol tidak boleh kosong untuk kupon RANJEN');
+      }
+      // Untuk DUKUNGAN, noPol bisa null
+      noPol = null;
+    } else {
+      // Extract angka dari No Pol
+      final noPolMatch = RegExp(r'\d+').firstMatch(noPolStr);
+      if (noPolMatch == null) {
+        throw Exception(
+          'No Pol harus mengandung angka. Ditemukan: "$noPolStr"',
+        );
+      }
+      noPol = noPolMatch.group(0)!;
     }
-    final noPol = noPolMatch.group(0)!;
 
     final kodeNopol = _getCellString(row, 7); // Ini kolom H (Kode)
     final jenisBBM = _getCellString(row, 8);
@@ -200,24 +264,57 @@ class ExcelDatasource {
     print('Debug - Kuantum: "$kuantumStr" -> $kuantum'); // Debug line
 
     // Validasi jenis BBM dengan lebih fleksibel
-    if (!jenisBBM.toLowerCase().contains('pertamax') &&
-        !jenisBBM.toLowerCase().contains('dex')) {
+    final jenisBBMLower = jenisBBM.toLowerCase();
+    if (!jenisBBMLower.contains('pertamax') &&
+        !jenisBBMLower.contains('dex') &&
+        !jenisBBMLower.contains('solar')) {
       throw Exception(
-        'Jenis BBM harus Pertamax atau Pertamina Dex. Ditemukan: "$jenisBBM"',
+        'Jenis BBM harus mengandung kata Pertamax, Dex, atau Solar. Ditemukan: "$jenisBBM"',
       );
     }
 
-    // Validasi data lengkap
-    if (noKupon.isEmpty ||
+    // Validasi data lengkap - berbeda untuk RANJEN dan DUKUNGAN
+    print('Debug - Validasi Detail:');
+    print('  noKupon: "$noKupon" (kosong: ${noKupon.isEmpty})');
+    print('  bulan: $bulan (valid: ${bulan >= 1 && bulan <= 12})');
+    print('  tahun: $tahun (valid: ${tahun >= 2000})');
+    print('  satker: "$satker" (kosong: ${satker.isEmpty})');
+    print('  jenisBBM: "$jenisBBM" (kosong: ${jenisBBM.isEmpty})');
+    print('  kuantum: $kuantum (valid: ${kuantum > 0})');
+
+    final basicValidation =
+        noKupon.isEmpty ||
         bulan < 1 ||
         bulan > 12 ||
         tahun < 2000 ||
-        jenisRanmor.isEmpty ||
         satker.isEmpty ||
         jenisBBM.isEmpty ||
-        kuantum <= 0) {
-      throw Exception('Data tidak lengkap atau tidak valid');
+        kuantum <= 0;
+
+    if (basicValidation) {
+      String errorDetails = 'Data dasar tidak valid: ';
+      if (noKupon.isEmpty) errorDetails += 'noKupon kosong, ';
+      if (bulan < 1 || bulan > 12)
+        errorDetails += 'bulan tidak valid ($bulan), ';
+      if (tahun < 2000) errorDetails += 'tahun tidak valid ($tahun), ';
+      if (satker.isEmpty) errorDetails += 'satker kosong, ';
+      if (jenisBBM.isEmpty) errorDetails += 'jenisBBM kosong, ';
+      if (kuantum <= 0) errorDetails += 'kuantum tidak valid ($kuantum), ';
+
+      throw Exception(errorDetails.replaceAll(RegExp(r', $'), ''));
     }
+
+    // Validasi khusus untuk RANJEN - memerlukan data kendaraan lengkap
+    if (!isDukungan) {
+      if (jenisRanmor.isEmpty || noPol == null) {
+        throw Exception('Data kendaraan tidak lengkap untuk kupon RANJEN');
+      }
+    }
+
+    // Untuk DUKUNGAN, jenisRanmor boleh kosong, akan diisi default
+    final finalJenisRanmor = isDukungan && jenisRanmor.isEmpty
+        ? 'N/A (DUKUNGAN)'
+        : jenisRanmor;
 
     final tanggalMulai = DateTime(tahun, bulan, 1);
     final tanggalSampai = DateTime(
@@ -230,8 +327,6 @@ class ExcelDatasource {
     final finalKodeNopol = kodeNopol.isNotEmpty
         ? kodeNopol
         : DEFAULT_KODE_NOPOL;
-
-    print('Debug - Creating KendaraanModel with noPolNomor: "$noPol"');
 
     // Get satkerId from database
     final db = await _databaseDatasource.database;
@@ -246,15 +341,24 @@ class ExcelDatasource {
         ? satkerResult.first['satker_id'] as int
         : 1;
 
-    final kendaraan = KendaraanModel(
-      kendaraanId: 0,
-      satkerId: satkerId,
-      jenisRanmor: jenisRanmor,
-      noPolKode: finalKodeNopol,
-      noPolNomor: noPolStr, // Gunakan string asli, bukan hasil extract
-      statusAktif: 1,
-      createdAt: DateTime.now().toIso8601String(),
-    );
+    // Hanya buat KendaraanModel untuk kupon RANJEN
+    KendaraanModel? kendaraan;
+    if (!isDukungan && noPol != null) {
+      print(
+        'Debug - Creating KendaraanModel for RANJEN with noPolNomor: "$noPol"',
+      );
+      kendaraan = KendaraanModel(
+        kendaraanId: 0,
+        satkerId: satkerId,
+        jenisRanmor: finalJenisRanmor,
+        noPolKode: finalKodeNopol,
+        noPolNomor: noPol, // Gunakan angka yang sudah diextract
+        statusAktif: 1,
+        createdAt: DateTime.now().toIso8601String(),
+      );
+    } else {
+      print('Debug - Skipping KendaraanModel creation for DUKUNGAN');
+    }
 
     // Tentukan jenis BBM ID
     int jenisBbmId = 1; // Default Pertamax
@@ -265,9 +369,11 @@ class ExcelDatasource {
     final kupon = KuponModel(
       kuponId: 0,
       nomorKupon: noKupon,
-      kendaraanId: 0,
+      kendaraanId: isDukungan
+          ? null
+          : 0, // null untuk DUKUNGAN, 0 untuk RANJEN (akan di-set nanti)
       jenisBbmId: jenisBbmId,
-      jenisKuponId: jenisKupon == 'Ranjen' ? 1 : 2,
+      jenisKuponId: jenisKupon.toLowerCase().contains('ranjen') ? 1 : 2,
       bulanTerbit: bulan,
       tahunTerbit: tahun,
       tanggalMulai: tanggalMulai.toIso8601String(),
@@ -284,4 +390,7 @@ class ExcelDatasource {
 
     return (kupon, kendaraan);
   }
+
+  /// Handles duplicate replacement by removing existing kupon with same criteria
+  /// Returns true if replacement happened, false if no duplicates found
 }

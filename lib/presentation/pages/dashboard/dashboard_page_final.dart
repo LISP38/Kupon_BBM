@@ -31,7 +31,10 @@ class _DashboardPageState extends State<DashboardPage> {
   final Map<int, String> _jenisKuponMap = {1: 'Ranjen', 2: 'Dukungan'};
 
   // Mendapatkan NoPol dari kendaraanId
-  String _getNopolByKendaraanId(int kendaraanId) {
+  String _getNopolByKendaraanId(int? kendaraanId) {
+    // Handle DUKUNGAN coupons that don't have kendaraan
+    if (kendaraanId == null) return 'N/A (DUKUNGAN)';
+
     final kendaraan = _kendaraanList.firstWhere(
       (k) => k.kendaraanId == kendaraanId,
       orElse: () => KendaraanModel(

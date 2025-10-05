@@ -132,7 +132,8 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
           throw Exception('Transaksi not found');
         }
 
-        final oldJumlahLiter = oldTransaksi.first['jumlah_liter'] as int;
+        final oldJumlahLiter = (oldTransaksi.first['jumlah_liter'] as num)
+            .toDouble();
         final newJumlahLiter = transaksi.jumlahLiter;
         final selisihLiter = newJumlahLiter - oldJumlahLiter;
 

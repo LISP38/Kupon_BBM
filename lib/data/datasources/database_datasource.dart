@@ -32,7 +32,7 @@ class DatabaseDatasource {
     return await dbFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onConfigure: (db) async {
           print('DEBUG: onConfigure called');
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -78,6 +78,55 @@ class DatabaseDatasource {
             );
             await db.execute('DROP TABLE fact_kupon_temp');
             print('DEBUG: UNIQUE constraint removed from nomor_kupon');
+          }
+
+          if (oldVersion < 3) {
+            // Add import history tracking tables
+            await db.execute('''
+              CREATE TABLE import_history (
+                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                import_type TEXT NOT NULL,
+                import_date TEXT NOT NULL,
+                expected_period TEXT,
+                total_kupons INTEGER NOT NULL,
+                success_count INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                duplicate_count INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'PROCESSING',
+                error_message TEXT,
+                metadata TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+              );
+            ''');
+
+            await db.execute('''
+              CREATE TABLE import_details (
+                detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                kupon_data TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                action TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
+                  ON DELETE CASCADE
+              );
+            ''');
+
+            // Add indexes for import history
+            await db.execute(
+              'CREATE INDEX idx_import_history_date ON import_history(import_date);',
+            );
+            await db.execute(
+              'CREATE INDEX idx_import_history_status ON import_history(status);',
+            );
+            await db.execute(
+              'CREATE INDEX idx_import_details_session ON import_details(session_id);',
+            );
+
+            print('DEBUG: Import history tables created');
           }
         },
       ),
@@ -173,6 +222,40 @@ class DatabaseDatasource {
       );
     ''');
 
+    // Import history tables
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS import_history (
+        session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT NOT NULL,
+        import_type TEXT NOT NULL,
+        import_date TEXT NOT NULL,
+        expected_period TEXT,
+        total_kupons INTEGER NOT NULL,
+        success_count INTEGER DEFAULT 0,
+        error_count INTEGER DEFAULT 0,
+        duplicate_count INTEGER DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'PROCESSING',
+        error_message TEXT,
+        metadata TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    ''');
+
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS import_details (
+        detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        kupon_data TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        action TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
+          ON DELETE CASCADE
+      );
+    ''');
+
     // Indexes
     batch.execute(
       'CREATE INDEX IF NOT EXISTS idx_kendaraan_satker ON dim_kendaraan(satker_id);',
@@ -185,6 +268,15 @@ class DatabaseDatasource {
     );
     batch.execute(
       'CREATE INDEX IF NOT EXISTS idx_transaksi_kupon ON fact_transaksi(kupon_id);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_history_date ON import_history(import_date);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_history_status ON import_history(status);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_details_session ON import_details(session_id);',
     );
 
     await batch.commit(noResult: true);
@@ -224,7 +316,7 @@ class DatabaseDatasource {
         {'id': 4, 'name': 'ROOPS'},
         {'id': 5, 'name': 'RORENA'},
         {'id': 6, 'name': 'RO SDM'},
-        {'id': 7, 'name': 'ROLOG'},
+        {'id': 7, 'name': 'RO LOG'},
         {'id': 8, 'name': 'DITINTELKAM'},
         {'id': 9, 'name': 'DITKRIMUM'},
         {'id': 10, 'name': 'DITKRIMSUS'},

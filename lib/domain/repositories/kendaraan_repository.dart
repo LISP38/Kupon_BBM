@@ -3,7 +3,7 @@ import '../entities/kendaraan_entity.dart';
 abstract class KendaraanRepository {
   Future<List<KendaraanEntity>> getAllKendaraan();
   Future<KendaraanEntity?> getKendaraanById(int kendaraanId);
-  Future<void> insertKendaraan(KendaraanEntity kendaraan);
+  Future<int> insertKendaraan(KendaraanEntity kendaraan);
   Future<void> updateKendaraan(KendaraanEntity kendaraan);
   Future<void> deleteKendaraan(int kendaraanId);
 

@@ -1,231 +1,568 @@
 // lib/presentation/pages/import/import_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:kupon_bbm_app/presentation/providers/import_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
+import '../../providers/enhanced_import_provider.dart';
+import '../../../data/services/enhanced_import_service.dart';
+import 'import_history_page.dart';
+import 'import_preview_page.dart';
 
-class ImportPage extends StatelessWidget {
+class ImportPage extends StatefulWidget {
   final VoidCallback? onImportSuccess;
   const ImportPage({super.key, this.onImportSuccess});
 
   @override
+  State<ImportPage> createState() => _ImportPageState();
+}
+
+class _ImportPageState extends State<ImportPage> {
+  String _selectedFileName = 'Tidak ada file yang dipilih';
+  int? _expectedMonth;
+  int? _expectedYear;
+  bool _importCompleted = false;
+
+  Future<void> _pickFile(EnhancedImportProvider provider) async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls'],
+      );
+
+      if (result != null) {
+        final file = result.files.first;
+        setState(() {
+          _selectedFileName = file.name;
+          _importCompleted = false; // Reset import completed flag
+        });
+        provider.setFilePath(file.path!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error memilih file: $e')));
+      }
+    }
+  }
+
+  void _showPeriodDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Set Periode yang Diharapkan'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Opsional: Set bulan dan tahun yang diharapkan untuk validasi',
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(labelText: 'Bulan'),
+                    value: _expectedMonth,
+                    items: List.generate(12, (index) => index + 1)
+                        .map(
+                          (month) => DropdownMenuItem(
+                            value: month,
+                            child: Text(month.toString().padLeft(2, '0')),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _expectedMonth = value),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextFormField(
+                    decoration: const InputDecoration(labelText: 'Tahun'),
+                    keyboardType: TextInputType.number,
+                    initialValue: _expectedYear?.toString(),
+                    onChanged: (value) => _expectedYear = int.tryParse(value),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () {
+              Provider.of<EnhancedImportProvider>(
+                context,
+                listen: false,
+              ).setExpectedPeriod(_expectedMonth, _expectedYear);
+              Navigator.pop(context);
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(bool success, bool hasWarnings) {
+    if (!success) return Colors.red;
+    if (hasWarnings) return Colors.orange;
+    return Colors.green;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<ImportProvider>(
+    return Consumer<EnhancedImportProvider>(
       builder: (context, provider, child) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Import Kupon dari Excel')),
+          appBar: AppBar(
+            title: const Text('Import Kupon dari Excel'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.schedule),
+                tooltip: 'Set Periode',
+                onPressed: _showPeriodDialog,
+              ),
+              IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: 'Riwayat Import',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ImportHistoryPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
           body: Padding(
             padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // File Selection Area
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          provider.fileName,
-                          style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey.shade700,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // File Selection Area
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Pilih File Excel',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    ElevatedButton.icon(
-                      onPressed: provider.isLoading ? null : provider.pickFile,
-                      icon: const Icon(Icons.folder_open),
-                      label: const Text('Pilih File'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Status & Validation Messages
-                if (provider.statusMessage.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _getStatusColor(provider.statusMessage),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      provider.statusMessage,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-
-                if (provider.validationMessages.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Peringatan:',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  Container(
-                    height: 100,
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.orange),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: ListView.builder(
-                      itemCount: provider.validationMessages.length,
-                      itemBuilder: (context, index) => Text(
-                        '• ${provider.validationMessages[index]}',
-                        style: const TextStyle(color: Colors.orange),
-                      ),
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // Data Preview
-                if (provider.kupons.isNotEmpty) ...[
-                  Text(
-                    'Preview Data (${provider.kupons.length} kupon):',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  if (provider.replaceMode) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        border: Border.all(color: Colors.blue.shade200),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'Mode replace aktif: Data existing akan diganti berdasarkan nomor kupon.',
-                        style: TextStyle(
-                          color: Colors.blue,
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SingleChildScrollView(
-                          child: DataTable(
-                            columns: const [
-                              DataColumn(label: Text('No Kupon')),
-                              DataColumn(label: Text('Jenis')),
-                              DataColumn(label: Text('BBM')),
-                              DataColumn(label: Text('Nomor Polisi')),
-                              DataColumn(label: Text('Kuota')),
-                              DataColumn(label: Text('Periode')),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: Colors.grey.shade300,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    _selectedFileName,
+                                    style: TextStyle(
+                                      color: provider.selectedFilePath != null
+                                          ? Colors.black
+                                          : Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                onPressed: provider.isLoading
+                                    ? null
+                                    : () => _pickFile(provider),
+                                icon: const Icon(Icons.file_open),
+                                label: const Text('Pilih File'),
+                              ),
                             ],
-                            rows: List.generate(provider.kupons.length, (
-                              index,
-                            ) {
-                              final kupon = provider.kupons[index];
-                              final kendaraan = provider.newKendaraans[index];
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(kupon.nomorKupon)),
-                                  DataCell(
-                                    Text(
-                                      kupon.jenisKuponId == 1
-                                          ? 'Ranjen'
-                                          : 'Dukungan',
-                                    ),
-                                  ),
-                                  DataCell(
-                                    Text(
-                                      kupon.jenisBbmId == 1
-                                          ? 'Pertamax'
-                                          : 'Dex',
-                                    ),
-                                  ),
-                                  DataCell(
-                                    Text(
-                                      '${kendaraan.noPolNomor}-${kendaraan.noPolKode}',
-                                    ),
-                                  ),
-                                  DataCell(Text('${kupon.kuotaAwal}')),
-                                  DataCell(
-                                    Text(
-                                      '${kupon.bulanTerbit}/${kupon.tahunTerbit}',
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }),
                           ),
-                        ),
+                        ],
                       ),
                     ),
                   ),
-                ],
 
-                const SizedBox(height: 24),
-
-                // Replace Checkbox
-                if (provider.kupons.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  CheckboxListTile(
-                    title: const Text('Ganti data yang sudah ada (Replace)'),
-                    subtitle: const Text(
-                      'Data kupon existing akan diganti berdasarkan nomor kupon.',
-                      style: TextStyle(fontSize: 12),
+
+                  // Import Type Selection - hide after successful import
+                  if (provider.selectedFilePath != null &&
+                      !_importCompleted) ...[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Mode Import',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Column(
+                              children: ImportType.values.map((type) {
+                                return RadioListTile<ImportType>(
+                                  title: Text(_getImportTypeLabel(type)),
+                                  subtitle: Text(
+                                    _getImportTypeDescription(type),
+                                  ),
+                                  value: type,
+                                  groupValue: provider.importType,
+                                  onChanged: provider.isLoading
+                                      ? null
+                                      : (ImportType? value) {
+                                          if (value != null) {
+                                            provider.setImportType(value);
+                                          }
+                                        },
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    value: provider.replaceMode,
-                    onChanged: provider.isLoading
-                        ? null
-                        : (bool? value) {
-                            provider.setReplaceMode(value ?? false);
-                          },
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
+
+                    const SizedBox(height: 16),
+
+                    // Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed:
+                                provider.isLoading ||
+                                    provider.selectedFilePath == null
+                                ? null
+                                : () async {
+                                    try {
+                                      await provider.validateOnly();
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Validasi selesai! Lihat hasil di bawah.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Error validasi: $e'),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: const Text('Validasi Saja'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed:
+                                provider.isLoading ||
+                                    provider.selectedFilePath == null ||
+                                    provider.importType ==
+                                        ImportType.validate_only
+                                ? null
+                                : () async {
+                                    try {
+                                      // Save scaffold messenger reference
+                                      final scaffoldMessenger =
+                                          ScaffoldMessenger.of(context);
+
+                                      // Show loading indicator
+                                      scaffoldMessenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Memproses file...'),
+                                          duration: Duration(seconds: 1),
+                                        ),
+                                      );
+
+                                      // Get preview data
+                                      final previewData = await provider
+                                          .getPreviewData();
+                                      final fileName = provider
+                                          .selectedFilePath!
+                                          .split('/')
+                                          .last;
+
+                                      if (mounted) {
+                                        // Navigate to preview page
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => ImportPreviewPage(
+                                              parseResult: previewData,
+                                              fileName: fileName,
+                                              onConfirmImport: () async {
+                                                Navigator.pop(context);
+
+                                                // Capture scaffoldMessenger before async operation
+                                                final scaffoldMessenger =
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    );
+
+                                                // Perform actual import
+                                                try {
+                                                  final result = await provider
+                                                      .performImport();
+                                                  if (mounted) {
+                                                    final message =
+                                                        result.success
+                                                        ? 'Import berhasil! ${result.successCount} kupon berhasil diimport.'
+                                                        : 'Import gagal!';
+
+                                                    // Use captured scaffoldMessenger
+                                                    scaffoldMessenger
+                                                        .showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              message,
+                                                            ),
+                                                          ),
+                                                        );
+
+                                                    // Handle success callback and UI updates
+                                                    if (result.success) {
+                                                      // Update UI state first
+                                                      setState(() {
+                                                        _importCompleted = true;
+                                                      });
+
+                                                      // Call success callback with proper delay and checks
+                                                      if (widget
+                                                              .onImportSuccess !=
+                                                          null) {
+                                                        WidgetsBinding.instance
+                                                            .addPostFrameCallback((
+                                                              _,
+                                                            ) {
+                                                              if (mounted) {
+                                                                widget
+                                                                    .onImportSuccess!();
+                                                              }
+                                                            });
+                                                      }
+                                                    }
+                                                  }
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    // Use captured scaffoldMessenger
+                                                    scaffoldMessenger
+                                                        .showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              'Error import: $e',
+                                                            ),
+                                                          ),
+                                                        );
+                                                  }
+                                                }
+                                              },
+                                              onCancel: () {
+                                                Navigator.pop(context);
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        try {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Error membaca file: $e',
+                                              ),
+                                            ),
+                                          );
+                                        } catch (_) {
+                                          // Ignore if context is no longer valid
+                                        }
+                                      }
+                                    }
+                                  },
+                            icon: const Icon(Icons.preview),
+                            label: const Text('Preview & Import'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (provider.isLoading) ...[
+                      const SizedBox(height: 16),
+                      const Center(child: CircularProgressIndicator()),
+                    ],
+                  ],
+
+                  const SizedBox(height: 16),
+
+                  // Results Section
+                  if (provider.lastImportResult != null) ...[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  _getStatusIcon(
+                                    provider.lastImportResult!.success,
+                                    provider
+                                        .lastImportResult!
+                                        .warnings
+                                        .isNotEmpty,
+                                  ),
+                                  color: _getStatusColor(
+                                    provider.lastImportResult!.success,
+                                    provider
+                                        .lastImportResult!
+                                        .warnings
+                                        .isNotEmpty,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Hasil ${provider.importType == ImportType.validate_only ? "Validasi" : "Import"}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Divider(),
+
+                            Text(
+                              'Status: ${_getStatusLabel(provider.lastImportResult!.success, provider.lastImportResult!.warnings.isNotEmpty)}',
+                            ),
+                            Text(
+                              'Berhasil: ${provider.lastImportResult!.successCount}',
+                            ),
+                            Text(
+                              'Error: ${provider.lastImportResult!.errorCount}',
+                            ),
+                            Text(
+                              'Duplikat: ${provider.lastImportResult!.duplicateCount}',
+                            ),
+
+                            if (provider
+                                .lastImportResult!
+                                .warnings
+                                .isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Peringatan:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 100,
+                                ),
+                                child: ListView.builder(
+                                  itemCount: provider
+                                      .lastImportResult!
+                                      .warnings
+                                      .length,
+                                  itemBuilder: (context, index) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 2.0,
+                                      ),
+                                      child: Text(
+                                        '• ${provider.lastImportResult!.warnings[index]}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+
+                            if (provider
+                                .lastImportResult!
+                                .errors
+                                .isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Error:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 100,
+                                ),
+                                child: ListView.builder(
+                                  itemCount:
+                                      provider.lastImportResult!.errors.length,
+                                  itemBuilder: (context, index) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 2.0,
+                                      ),
+                                      child: Text(
+                                        '• ${provider.lastImportResult!.errors[index]}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-
-                // Import Button
-                if (provider.kupons.isNotEmpty)
-                  ElevatedButton.icon(
-                    onPressed: provider.isLoading
-                        ? null
-                        : () async {
-                            final success = await provider.startImport();
-                            if (success == true && onImportSuccess != null) {
-                              onImportSuccess!();
-                            }
-                          },
-                    icon: const Icon(Icons.file_upload_outlined),
-                    label: Text(
-                      provider.isLoading
-                          ? 'Mengimport...'
-                          : 'Import ${provider.kupons.length} Kupon ${provider.replaceMode ? '(Replace)' : ''}',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-
-                if (provider.isLoading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 24.0),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-              ],
+              ),
             ),
           ),
         );
@@ -233,13 +570,33 @@ class ImportPage extends StatelessWidget {
     );
   }
 
-  Color _getStatusColor(String message) {
-    if (message.contains('Error') || message.contains('error')) {
-      return Colors.red.shade700;
+  String _getImportTypeLabel(ImportType type) {
+    switch (type) {
+      case ImportType.append:
+        return 'Tambah Data (Append)';
+      case ImportType.validate_only:
+        return 'Validasi Saja';
     }
-    if (message.contains('peringatan') || message.contains('warning')) {
-      return Colors.orange.shade700;
+  }
+
+  String _getImportTypeDescription(ImportType type) {
+    switch (type) {
+      case ImportType.append:
+        return 'Menambahkan data baru, duplikat akan ditolak dengan validasi ketat';
+      case ImportType.validate_only:
+        return 'Hanya mengecek validitas data tanpa menyimpan ke database';
     }
-    return Colors.green.shade700;
+  }
+
+  IconData _getStatusIcon(bool success, bool hasWarnings) {
+    if (!success) return Icons.error;
+    if (hasWarnings) return Icons.warning;
+    return Icons.check_circle;
+  }
+
+  String _getStatusLabel(bool success, bool hasWarnings) {
+    if (!success) return 'Error';
+    if (hasWarnings) return 'Berhasil dengan Peringatan';
+    return 'Berhasil';
   }
 }

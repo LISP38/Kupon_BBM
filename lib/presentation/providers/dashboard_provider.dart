@@ -11,53 +11,125 @@ class DashboardProvider extends ChangeNotifier {
   List<KuponEntity> get kupons => _kupons;
   List<KuponEntity> get kuponList => _kupons;
 
+  // Master data lists
+  List<String> _satkerList = [];
+  List<String> get satkerList => _satkerList;
+
   // Filter state
   String? nomorKupon;
   String? satker;
   String? jenisBBM;
   String? jenisKupon;
   String? nopol;
+  String? jenisRanmor;
   int? bulanTerbit;
   int? tahunTerbit;
 
   DashboardProvider(this._kuponRepository);
 
+  Future<void> fetchSatkers() async {
+    final db =
+        await (_kuponRepository as KuponRepositoryImpl).dbHelper.database;
+
+    try {
+      final results = await db.query(
+        'dim_satker',
+        columns: ['nama_satker'],
+        orderBy: 'nama_satker ASC',
+      );
+
+      _satkerList = results.map((row) => row['nama_satker'] as String).toList();
+      notifyListeners();
+    } catch (e) {
+      print('[DASHBOARD] Error fetching satkers: $e');
+      _satkerList = [];
+    }
+  }
+
   Future<void> fetchKupons() async {
-    final db = await ( _kuponRepository as KuponRepositoryImpl ).dbHelper.database;
-    // Ambil semua data kupon dari DB
-    final allKupons = await db.query('fact_kupon', where: 'is_deleted = 0');
-    print('[DASHBOARD][ALL] Semua data fact_kupon:');
-    for (final map in allKupons) {
-      print(map);
-    }
-    // Filter data sesuai state
-    List<KuponEntity> filtered = allKupons.map((map) => KuponModel.fromMap(map)).toList();
+    final db =
+        await (_kuponRepository as KuponRepositoryImpl).dbHelper.database;
+
+    // Build dynamic WHERE clause based on filters
+    List<String> whereConditions = ['fact_kupon.is_deleted = 0'];
+    List<dynamic> whereArgs = [];
+
+    // Apply filters with proper SQL conditions
     if (nomorKupon != null && nomorKupon!.isNotEmpty) {
-      filtered = filtered.where((k) => k.nomorKupon.contains(nomorKupon!)).toList();
+      whereConditions.add('fact_kupon.nomor_kupon LIKE ?');
+      whereArgs.add('${nomorKupon!}%');
     }
+
     if (jenisKupon != null && jenisKupon!.isNotEmpty) {
-      filtered = filtered.where((k) => k.jenisKuponId.toString() == jenisKupon || k.jenisKuponId == int.tryParse(jenisKupon!)).toList();
+      whereConditions.add('fact_kupon.jenis_kupon_id = ?');
+      whereArgs.add(int.tryParse(jenisKupon!) ?? jenisKupon);
     }
+
     if (jenisBBM != null && jenisBBM!.isNotEmpty) {
-      filtered = filtered.where((k) => k.jenisBbmId.toString() == jenisBBM || k.jenisBbmId == int.tryParse(jenisBBM!)).toList();
+      whereConditions.add('fact_kupon.jenis_bbm_id = ?');
+      whereArgs.add(int.tryParse(jenisBBM!) ?? jenisBBM);
     }
-    if (nopol != null && nopol!.isNotEmpty) {
-      filtered = filtered.where((k) => k.kendaraanId.toString() == nopol).toList(); // Bisa diimprove dengan join kendaraan
-    }
+
     if (bulanTerbit != null) {
-      filtered = filtered.where((k) => k.bulanTerbit == bulanTerbit).toList();
+      whereConditions.add('fact_kupon.bulan_terbit = ?');
+      whereArgs.add(bulanTerbit);
     }
+
     if (tahunTerbit != null) {
-      filtered = filtered.where((k) => k.tahunTerbit == tahunTerbit).toList();
+      whereConditions.add('fact_kupon.tahun_terbit = ?');
+      whereArgs.add(tahunTerbit);
     }
-    if (satker != null && satker!.isNotEmpty) {
-      // Butuh join ke kendaraan, sementara skip dulu
+
+    // Build query with optional JOIN for nopol, satker, and jenisRanmor filters
+    String query;
+    if ((nopol != null && nopol!.isNotEmpty) ||
+        (satker != null && satker!.isNotEmpty) ||
+        (jenisRanmor != null && jenisRanmor!.isNotEmpty)) {
+      // Need JOIN with dim_kendaraan and dim_satker for filtering
+      query =
+          '''
+        SELECT fact_kupon.* FROM fact_kupon 
+        LEFT JOIN dim_kendaraan ON fact_kupon.kendaraan_id = dim_kendaraan.kendaraan_id 
+        LEFT JOIN dim_satker ON dim_kendaraan.satker_id = dim_satker.satker_id
+        WHERE ${whereConditions.join(' AND ')}
+      ''';
+
+      if (nopol != null && nopol!.isNotEmpty) {
+        query +=
+            ' AND (COALESCE(dim_kendaraan.no_pol_kode, "") || "-" || COALESCE(dim_kendaraan.no_pol_nomor, "")) LIKE ?';
+        whereArgs.add('%${nopol!}%');
+      }
+
+      if (satker != null && satker!.isNotEmpty) {
+        query += ' AND dim_satker.nama_satker LIKE ?';
+        whereArgs.add('%${satker!}%');
+      }
+
+      if (jenisRanmor != null && jenisRanmor!.isNotEmpty) {
+        query += ' AND dim_kendaraan.jenis_ranmor LIKE ?';
+        whereArgs.add('%${jenisRanmor!}%');
+      }
+    } else {
+      // Simple query without JOIN
+      query = 'SELECT * FROM fact_kupon WHERE ${whereConditions.join(' AND ')}';
     }
-    _kupons = filtered;
+
+    print('[DASHBOARD] Executing query: $query');
+    print('[DASHBOARD] With args: $whereArgs');
+
+    // Execute query
+    final results = await db.rawQuery(query, whereArgs);
+
+    // Convert to entities
+    _kupons = results.map((map) => KuponModel.fromMap(map)).toList();
+
     print('[DASHBOARD] fetchKupons: jumlah data = ${_kupons.length}');
     for (final k in _kupons) {
-      print('[DASHBOARD] kupon: id=${k.kuponId}, nomor=${k.nomorKupon}, kendaraanId=${k.kendaraanId}, isDeleted=${k.isDeleted}, status=${k.status}');
+      print(
+        '[DASHBOARD] kupon: id=${k.kuponId}, nomor=${k.nomorKupon}, kendaraanId=${k.kendaraanId}, isDeleted=${k.isDeleted}, status=${k.status}',
+      );
     }
+
     notifyListeners();
   }
 
@@ -67,6 +139,7 @@ class DashboardProvider extends ChangeNotifier {
     String? jenisBBM,
     String? jenisKupon,
     String? nopol,
+    String? jenisRanmor,
     int? bulanTerbit,
     int? tahunTerbit,
   }) {
@@ -75,6 +148,7 @@ class DashboardProvider extends ChangeNotifier {
     this.jenisBBM = jenisBBM;
     this.jenisKupon = jenisKupon;
     this.nopol = nopol;
+    this.jenisRanmor = jenisRanmor;
     this.bulanTerbit = bulanTerbit;
     this.tahunTerbit = tahunTerbit;
     fetchKupons();

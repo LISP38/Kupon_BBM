@@ -4,7 +4,7 @@ class KuponModel extends KuponEntity {
   const KuponModel({
     required super.kuponId,
     required super.nomorKupon,
-    required super.kendaraanId,
+    super.kendaraanId, // Optional for DUKUNGAN
     required super.jenisBbmId,
     required super.jenisKuponId,
     required super.bulanTerbit,
@@ -25,7 +25,7 @@ class KuponModel extends KuponEntity {
     return KuponModel(
       kuponId: map['kupon_id'] as int,
       nomorKupon: map['nomor_kupon'] as String,
-      kendaraanId: map['kendaraan_id'] as int,
+      kendaraanId: map['kendaraan_id'] as int?, // Nullable for DUKUNGAN
       jenisBbmId: map['jenis_bbm_id'] as int,
       jenisKuponId: map['jenis_kupon_id'] as int,
       bulanTerbit: map['bulan_terbit'] as int,

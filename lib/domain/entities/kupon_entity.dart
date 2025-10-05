@@ -1,7 +1,7 @@
 class KuponEntity {
   final int kuponId;
   final String nomorKupon;
-  final int kendaraanId;
+  final int? kendaraanId; // Nullable for DUKUNGAN
   final int jenisBbmId;
   final int jenisKuponId;
   final int bulanTerbit;
@@ -20,7 +20,7 @@ class KuponEntity {
   const KuponEntity({
     required this.kuponId,
     required this.nomorKupon,
-    required this.kendaraanId,
+    this.kendaraanId, // Optional for DUKUNGAN
     required this.jenisBbmId,
     required this.jenisKuponId,
     required this.bulanTerbit,

@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import '../../../domain/entities/kupon_entity.dart';
-import '../../../domain/entities/satker_entity.dart';
 import '../../../domain/entities/transaksi_entity.dart';
 import '../../../data/models/transaksi_model.dart';
-import '../../providers/kupon_provider.dart';
-import '../../providers/master_data_provider.dart';
 
 class TransaksiBBMForm extends StatefulWidget {
   final int jenisBbmId;
