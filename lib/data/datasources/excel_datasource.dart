@@ -173,6 +173,12 @@ class ExcelDatasource {
     final duplicateKendaraans = <KendaraanModel>[];
     final validationMessages = <String>[];
 
+    // Temporary ID counter untuk kendaraan baru (dimulai dari -1 dan turun)
+    // Ini akan di-map ke real ID nanti di enhanced_import_service.dart
+    int tempKendaraanIdCounter = -1;
+    final Map<String, int> tempKendaraanIdMap =
+        {}; // key: noPolKode+noPolNomor, value: tempId
+
     // Ambil sheet pertama
     final sheet = excel.tables[excel.tables.keys.first]!;
 
@@ -188,11 +194,14 @@ class ExcelDatasource {
     print(
       'DEBUG: Sheet "${excel.tables.keys.first}" has ${sheet.rows.length} rows',
     );
-    
+
     // Debug: Show first few rows
     for (int i = 0; i < (sheet.rows.length > 5 ? 5 : sheet.rows.length); i++) {
       final row = sheet.rows[i];
-      final preview = row.map((cell) => cell?.value?.toString() ?? 'NULL').take(5).join(' | ');
+      final preview = row
+          .map((cell) => cell?.value?.toString() ?? 'NULL')
+          .take(5)
+          .join(' | ');
       print('DEBUG - Row ${i + 1} preview: $preview');
     }
 
@@ -204,7 +213,11 @@ class ExcelDatasource {
       final rowNumber = i + 1;
       try {
         // Parse data dari row
-        final data = await _parseRow(row);
+        final data = await _parseRow(
+          row,
+          tempKendaraanIdMap,
+          () => --tempKendaraanIdCounter,
+        );
         if (data != null) {
           processedRows++;
           final (kupon, kendaraan) = data;
@@ -226,10 +239,26 @@ class ExcelDatasource {
           );
 
           print(
-            'DEBUG - Validating kupon ${kupon.nomorKupon}: ${validationResult.isValid}',
+            'DEBUG - Row $rowNumber: Kupon ${kupon.nomorKupon} (${kupon.namaSatker}, ${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"}): ${validationResult.isValid}',
           );
           if (!validationResult.isValid) {
             print('DEBUG - Validation messages: ${validationResult.messages}');
+            // Cari kupon yang sama di batch saat ini
+            final sameInBatch = kupons
+                .where(
+                  (k) =>
+                      k.nomorKupon == kupon.nomorKupon &&
+                      k.satkerId == kupon.satkerId &&
+                      k.bulanTerbit == kupon.bulanTerbit &&
+                      k.tahunTerbit == kupon.tahunTerbit &&
+                      k.jenisKuponId == kupon.jenisKuponId,
+                )
+                .toList();
+            if (sameInBatch.isNotEmpty) {
+              print(
+                'DEBUG - Found ${sameInBatch.length} identical kupons already in current batch',
+              );
+            }
           }
 
           if (!validationResult.isValid) {
@@ -247,6 +276,10 @@ class ExcelDatasource {
             );
 
             if (isDuplicate) {
+              // Analisis jenis duplikat - dari database atau batch saat ini
+              final duplicateMessage = validationResult.messages.first;
+              print('  -> Detail duplikat: $duplicateMessage');
+
               // Ini duplikat - masukkan ke list duplikat untuk preview
               duplicateKupons.add(kupon);
               if (kendaraan != null) {
@@ -287,10 +320,84 @@ class ExcelDatasource {
               }
             }
           } else {
-            // Validasi berhasil - ini kupon baru
-            kupons.add(kupon);
-            if (kendaraan != null) {
-              newKendaraans.add(kendaraan);
+            // Validasi berhasil - tapi lakukan double-check duplikasi internal dengan mempertimbangkan ranmor
+            bool existsInBatch;
+
+            // Cek duplikat identik (semua field sama)
+            existsInBatch = kupons.any(
+              (k) =>
+                  k.nomorKupon == kupon.nomorKupon &&
+                  k.satkerId == kupon.satkerId &&
+                  k.bulanTerbit == kupon.bulanTerbit &&
+                  k.tahunTerbit == kupon.tahunTerbit &&
+                  k.jenisKuponId == kupon.jenisKuponId &&
+                  k.jenisBbmId == kupon.jenisBbmId &&
+                  k.kendaraanId == kupon.kendaraanId &&
+                  k.kuotaAwal == kupon.kuotaAwal,
+            );
+
+            if (existsInBatch) {
+              print(
+                'DEBUG - INTERNAL DUPLICATE DETECTED: Kupon ${kupon.nomorKupon} (${kupon.namaSatker})',
+              );
+
+              // Cari kupon yang benar-benar identik untuk analisis detail
+              final existingKupon = kupons.firstWhere(
+                (k) =>
+                    k.nomorKupon == kupon.nomorKupon &&
+                    k.satkerId == kupon.satkerId &&
+                    k.bulanTerbit == kupon.bulanTerbit &&
+                    k.tahunTerbit == kupon.tahunTerbit &&
+                    k.jenisKuponId == kupon.jenisKuponId &&
+                    k.jenisBbmId == kupon.jenisBbmId &&
+                    k.kendaraanId == kupon.kendaraanId &&
+                    k.kuotaAwal == kupon.kuotaAwal,
+              );
+
+              // Bandingkan detail
+              final differences = <String>[];
+              if (existingKupon.kuotaAwal != kupon.kuotaAwal) {
+                differences.add(
+                  'kuota: ${existingKupon.kuotaAwal} vs ${kupon.kuotaAwal}',
+                );
+              }
+              if (existingKupon.jenisBbmId != kupon.jenisBbmId) {
+                differences.add(
+                  'BBM: ${existingKupon.jenisBbmId} vs ${kupon.jenisBbmId}',
+                );
+              }
+              if (existingKupon.kendaraanId != kupon.kendaraanId) {
+                differences.add(
+                  'kendaraan: ${existingKupon.kendaraanId} vs ${kupon.kendaraanId}',
+                );
+              }
+
+              // Tambahan info untuk RANJEN
+              if (kupon.jenisKuponId == 1) {
+                print('  -> RANJEN dengan kendaraanId: ${kupon.kendaraanId}');
+              }
+
+              if (differences.isEmpty) {
+                print('  -> IDENTIK 100% - duplikat murni');
+              } else {
+                print(
+                  '  -> Ada perbedaan: ${differences.join(', ')} - mungkin bukan duplikat sejati',
+                );
+              }
+
+              duplicateKupons.add(kupon);
+              if (kendaraan != null) {
+                duplicateKendaraans.add(kendaraan);
+              }
+              validationMessages.add(
+                'Baris $rowNumber: DUPLIKAT INTERNAL - Kupon ${kupon.nomorKupon} untuk ${kupon.namaSatker} sudah ada dalam batch ini',
+              );
+            } else {
+              // Benar-benar kupon baru - tambahkan ke list
+              kupons.add(kupon);
+              if (kendaraan != null) {
+                newKendaraans.add(kendaraan);
+              }
             }
           }
         }
@@ -299,12 +406,23 @@ class ExcelDatasource {
       }
     }
 
+    final skippedRows = sheet.rows.length - processedRows;
+
+    print('DEBUG - EXCEL PARSING SUMMARY:');
+    print('  📄 Total rows in Excel: ${sheet.rows.length}');
+    print('  ✅ Rows successfully parsed: $processedRows');
+    print('  ❌ Rows skipped/failed: $skippedRows');
+    print('  📝 Valid kupons created: ${kupons.length}');
+    print('  🔄 Duplicate kupons found: ${duplicateKupons.length}');
     print(
-      'DEBUG - Total rows processed: $processedRows out of ${sheet.rows.length} rows',
+      '  📊 Total kupons detected: ${kupons.length + duplicateKupons.length}',
     );
-    print('DEBUG - Final kupon count: ${kupons.length}');
-    print('DEBUG - Final duplicate count: ${duplicateKupons.length}');
-    print('DEBUG - Total expected: ${kupons.length + duplicateKupons.length}');
+
+    if (skippedRows > 0) {
+      print(
+        '  ⚠️ WARNING: $skippedRows rows were not processed - check for data formatting issues!',
+      );
+    }
 
     return ExcelParseResult(
       kupons: kupons,
@@ -324,7 +442,11 @@ class ExcelDatasource {
     return str;
   }
 
-  Future<(KuponModel, KendaraanModel?)?> _parseRow(List<Data?> row) async {
+  Future<(KuponModel, KendaraanModel?)?> _parseRow(
+    List<Data?> row,
+    Map<String, int> tempKendaraanIdMap,
+    int Function() getNextTempId,
+  ) async {
     if (row.isEmpty || row.length < 10) return null;
 
     // Skip empty rows or headers
@@ -342,16 +464,14 @@ class ExcelDatasource {
     final cell1Lower = cell1.toLowerCase();
 
     // Hanya skip jika ini benar-benar header bukan data
-    final isDefinitelyHeader = (
-      (cell0Lower == 'jenis' || cell0Lower == 'jenis kupon') &&
-      (cell1Lower.contains('no') || cell1Lower.contains('nomor'))
-    ) || (
-      cell0Lower == 'type' && cell1Lower == 'number'
-    ) || (
-      // Skip baris yang hanya berisi nama kolom saja
-      (cell0Lower == 'ranjen' || cell0Lower == 'dukungan') && 
-      (cell1Lower.isEmpty || cell1Lower == '-')
-    );
+    final isDefinitelyHeader =
+        ((cell0Lower == 'jenis' || cell0Lower == 'jenis kupon') &&
+            (cell1Lower.contains('no') || cell1Lower.contains('nomor'))) ||
+        (cell0Lower == 'type' && cell1Lower == 'number') ||
+        (
+        // Skip baris yang hanya berisi nama kolom saja
+        (cell0Lower == 'ranjen' || cell0Lower == 'dukungan') &&
+            (cell1Lower.isEmpty || cell1Lower == '-'));
 
     if (isDefinitelyHeader) {
       print('Debug - Skipping confirmed header row: "$cell0", "$cell1"');
@@ -360,12 +480,10 @@ class ExcelDatasource {
 
     // Skip hanya jika kedua kolom pertama benar-benar kosong
     if (cell0.trim().isEmpty && cell1.trim().isEmpty) {
-      print(
-        'Debug - Skipping completely empty row',
-      );
+      print('Debug - Skipping completely empty row');
       return null;
     }
-    
+
     // Jika salah satu kosong, coba tetap proses (mungkin ada data di kolom lain)
     if (cell0.trim().isEmpty || cell1.trim().isEmpty) {
       print(
@@ -374,7 +492,9 @@ class ExcelDatasource {
     }
 
     // Hanya skip jika benar-benar baris numbering yang tidak relevan
-    if (RegExp(r'^\d+$').hasMatch(cell0) && cell1.trim().isEmpty && row.length < 5) {
+    if (RegExp(r'^\d+$').hasMatch(cell0) &&
+        cell1.trim().isEmpty &&
+        row.length < 5) {
       print('Debug - Skipping numbering row: "$cell0" (insufficient columns)');
       return null;
     }
@@ -384,9 +504,13 @@ class ExcelDatasource {
 
     // Validasi jenis kupon lebih permisif
     final jenisKuponLower = jenisKupon.toLowerCase();
-    if (!jenisKuponLower.contains('ranjen') && !jenisKuponLower.contains('dukungan') && 
-        !jenisKuponLower.contains('1') && !jenisKuponLower.contains('2')) {
-      print('Warning - Jenis kupon tidak standar: "$jenisKupon" - akan dicoba tetap diproses');
+    if (!jenisKuponLower.contains('ranjen') &&
+        !jenisKuponLower.contains('dukungan') &&
+        !jenisKuponLower.contains('1') &&
+        !jenisKuponLower.contains('2')) {
+      print(
+        'Warning - Jenis kupon tidak standar: "$jenisKupon" - akan dicoba tetap diproses',
+      );
     }
 
     // No Kupon - DIPERBAIKI untuk handle berbagai format
@@ -401,7 +525,9 @@ class ExcelDatasource {
     // Coba extract angka dari string
     final match = RegExp(r'\d+').firstMatch(noKuponStr);
     if (match == null) {
-      print('Warning - No Kupon tidak mengandung angka: "$noKuponStr" - akan skip');
+      print(
+        'Warning - No Kupon tidak mengandung angka: "$noKuponStr" - akan skip',
+      );
       return null; // Return null instead of throwing exception
     }
     final noKupon = match.group(0)!;
@@ -477,11 +603,9 @@ class ExcelDatasource {
 
     // Validasi jenis BBM dengan lebih fleksibel
     final jenisBBMLower = jenisBBM.toLowerCase();
-    if (!jenisBBMLower.contains('pertamax') &&
-        !jenisBBMLower.contains('dex') &&
-        !jenisBBMLower.contains('solar')) {
+    if (!jenisBBMLower.contains('pertamax') && !jenisBBMLower.contains('dex')) {
       throw Exception(
-        'Jenis BBM harus mengandung kata Pertamax, Dex, atau Solar. Ditemukan: "$jenisBBM"',
+        'Jenis BBM harus mengandung kata Pertamax atau Dex. Ditemukan: "$jenisBBM"',
       );
     }
 
@@ -561,12 +685,32 @@ class ExcelDatasource {
 
     // Hanya buat KendaraanModel untuk kupon RANJEN
     KendaraanModel? kendaraan;
+    int? tempKendaraanId;
+
     if (!isDukungan && noPol != null) {
       print(
         'Debug - Creating KendaraanModel for RANJEN with noPolNomor: "$noPol"',
       );
+
+      // Generate unique key untuk kendaraan ini
+      final kendaraanKey = '$finalKodeNopol$noPol';
+
+      // Cek apakah kendaraan ini sudah pernah di-create (untuk duplikat nopol)
+      if (tempKendaraanIdMap.containsKey(kendaraanKey)) {
+        tempKendaraanId = tempKendaraanIdMap[kendaraanKey];
+        print(
+          'Debug - Reusing existing temp ID $tempKendaraanId for kendaraan: $kendaraanKey',
+        );
+      } else {
+        tempKendaraanId = getNextTempId();
+        tempKendaraanIdMap[kendaraanKey] = tempKendaraanId;
+        print(
+          'Debug - Generated new temp ID $tempKendaraanId for kendaraan: $kendaraanKey',
+        );
+      }
+
       kendaraan = KendaraanModel(
-        kendaraanId: 0,
+        kendaraanId: tempKendaraanId!,
         satkerId: satkerId,
         jenisRanmor: finalJenisRanmor,
         noPolKode: finalKodeNopol,
@@ -589,7 +733,7 @@ class ExcelDatasource {
       nomorKupon: noKupon,
       kendaraanId: isDukungan
           ? null
-          : 0, // null untuk DUKUNGAN, 0 untuk RANJEN (akan di-set nanti)
+          : tempKendaraanId, // null untuk DUKUNGAN, tempId untuk RANJEN
       jenisBbmId: jenisBbmId,
       jenisKuponId: jenisKupon.toLowerCase().contains('ranjen') ? 1 : 2,
       bulanTerbit: bulan,

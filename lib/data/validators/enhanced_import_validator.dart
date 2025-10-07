@@ -74,6 +74,7 @@ class EnhancedImportValidator {
   }
 
   // Validasi duplikasi internal dalam file
+  // PERBAIKAN: Hanya anggap duplikat jika SEMUA field penting identik
   static ValidationResult validateInternalDuplicates(List<KuponModel> kupons) {
     final errors = <String>[];
     final warnings = <String>[];
@@ -81,8 +82,10 @@ class EnhancedImportValidator {
     final duplicates = <String, int>{};
 
     for (final kupon in kupons) {
+      // KUNCI BARU: Gabungkan SEMUA field yang menentukan keunikan kupon
+      // Nomor kupon yang sama DIIZINKAN selama ada perbedaan di field lain
       final key =
-          '${kupon.nomorKupon}_${kupon.bulanTerbit}_${kupon.tahunTerbit}_${kupon.jenisKuponId}';
+          '${kupon.nomorKupon}_${kupon.bulanTerbit}_${kupon.tahunTerbit}_${kupon.jenisKuponId}_${kupon.satkerId}_${kupon.jenisBbmId}_${kupon.kendaraanId}_${kupon.kuotaAwal}';
 
       if (seen.contains(key)) {
         duplicates[key] = (duplicates[key] ?? 1) + 1;
@@ -92,9 +95,24 @@ class EnhancedImportValidator {
     }
 
     if (duplicates.isNotEmpty) {
-      errors.add('Ditemukan duplikat dalam file Excel:');
+      errors.add('Ditemukan duplikat IDENTIK dalam file Excel:');
       duplicates.forEach((key, count) {
-        errors.add('• $key: $count kali');
+        final parts = key.split('_');
+        if (parts.length >= 8) {
+          final nomorKupon = parts[0];
+          final periode = '${parts[1]}/${parts[2]}';
+          final jenisKupon = parts[3] == '1' ? 'RANJEN' : 'DUKUNGAN';
+          final satkerId = parts[4];
+          final bbmType = parts[5] == '1' ? 'Pertamax' : 'Dex';
+          final kendaraanId = parts[6];
+          final kuota = parts[7];
+
+          errors.add(
+            '• Kupon $jenisKupon $nomorKupon ($bbmType) - Satker:$satkerId, Kendaraan:$kendaraanId, Kuota:$kuota, Periode:$periode: $count kali',
+          );
+        } else {
+          errors.add('• $key: $count kali');
+        }
       });
     }
 
@@ -107,6 +125,7 @@ class EnhancedImportValidator {
   }
 
   // Validasi terhadap database existing
+  // PERBAIKAN: Hanya anggap duplikat jika SEMUA field penting identik
   static ValidationResult validateAgainstExisting({
     required List<KuponModel> newKupons,
     required List<KuponModel> existingKupons,
@@ -118,29 +137,48 @@ class EnhancedImportValidator {
     final conflicts = <String, List<String>>{};
 
     for (final newKupon in newKupons) {
-      final key =
-          '${newKupon.nomorKupon}_${newKupon.bulanTerbit}_${newKupon.tahunTerbit}_${newKupon.jenisKuponId}';
-
+      // Cari kupon yang BENAR-BENAR IDENTIK (semua field penting sama)
       final existing = existingKupons
           .where(
             (k) =>
                 k.nomorKupon == newKupon.nomorKupon &&
                 k.bulanTerbit == newKupon.bulanTerbit &&
                 k.tahunTerbit == newKupon.tahunTerbit &&
-                k.jenisKuponId == newKupon.jenisKuponId,
+                k.jenisKuponId == newKupon.jenisKuponId &&
+                k.satkerId == newKupon.satkerId &&
+                k.jenisBbmId == newKupon.jenisBbmId &&
+                k.kendaraanId == newKupon.kendaraanId &&
+                k.kuotaAwal == newKupon.kuotaAwal,
           )
           .toList();
 
       if (existing.isNotEmpty) {
-        // Mode ketat: selalu reject duplikat
+        final key =
+            '${newKupon.nomorKupon}_${newKupon.bulanTerbit}_${newKupon.tahunTerbit}_${newKupon.jenisKuponId}_${newKupon.satkerId}_${newKupon.jenisBbmId}_${newKupon.kendaraanId}_${newKupon.kuotaAwal}';
+
         conflicts[key] = existing.map((k) => 'ID: ${k.kuponId}').toList();
       }
     }
 
     if (conflicts.isNotEmpty) {
-      errors.add('DUPLIKAT DETECTED: Data sudah ada di sistem!');
+      errors.add('DUPLIKAT IDENTIK DETECTED: Data sudah ada di sistem!');
       conflicts.forEach((key, existingIds) {
-        errors.add('• Kupon $key: sudah ada (${existingIds.join(", ")})');
+        final parts = key.split('_');
+        if (parts.length >= 8) {
+          final nomorKupon = parts[0];
+          final periode = '${parts[1]}/${parts[2]}';
+          final jenisKupon = parts[3] == '1' ? 'RANJEN' : 'DUKUNGAN';
+          final satkerId = parts[4];
+          final bbmType = parts[5] == '1' ? 'Pertamax' : 'Dex';
+          final kendaraanId = parts[6];
+          final kuota = parts[7];
+
+          errors.add(
+            '• Kupon $jenisKupon $nomorKupon ($bbmType) - Satker:$satkerId, Kendaraan:$kendaraanId, Kuota:$kuota, Periode:$periode: sudah ada (${existingIds.join(", ")})',
+          );
+        } else {
+          errors.add('• Kupon $key: sudah ada (${existingIds.join(", ")})');
+        }
       });
     }
 

@@ -1,5 +1,4 @@
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
-import 'package:kupon_bbm_app/data/models/satker_dukungan_model.dart';
 
 class KuponValidationResult {
   final bool isValid;
@@ -116,43 +115,101 @@ class KuponValidator {
       if (currentBatchKupons != null) ...currentBatchKupons,
     ];
 
-    // Cek apakah nomor kupon sudah ada dengan periode dan jenis yang sama
-    final duplicate = allKupons
-        .where(
-          (k) =>
-              k.nomorKupon == newKupon.nomorKupon &&
-              k.bulanTerbit == newKupon.bulanTerbit &&
-              k.tahunTerbit == newKupon.tahunTerbit &&
-              k.jenisKuponId == newKupon.jenisKuponId,
-        )
-        .toList();
+    // PERBAIKAN LENGKAP: Duplikat harus mempertimbangkan ranmor untuk RANJEN
+    // PRINSIP BARU: Duplikat hanya ditolak jika SEMUA field benar-benar identik
+    // Nomor kupon yang sama DIIZINKAN selama ada perbedaan di field lain
+
+    // Cari kupon yang BENAR-BENAR IDENTIK (semua field sama)
+    final duplicate = allKupons.where((k) {
+      final isIdentical =
+          k.nomorKupon == newKupon.nomorKupon &&
+          k.bulanTerbit == newKupon.bulanTerbit &&
+          k.tahunTerbit == newKupon.tahunTerbit &&
+          k.jenisKuponId == newKupon.jenisKuponId &&
+          k.satkerId == newKupon.satkerId &&
+          k.jenisBbmId == newKupon.jenisBbmId &&
+          k.kendaraanId == newKupon.kendaraanId &&
+          k.kuotaAwal == newKupon.kuotaAwal;
+
+      // Debug logging untuk kupon dengan nomor sama
+      if (k.nomorKupon == newKupon.nomorKupon) {
+        print('DEBUG DUPLICATE CHECK for kupon ${newKupon.nomorKupon}:');
+        print(
+          '  Existing: satker=${k.satkerId}, bbm=${k.jenisBbmId}, kendaraan=${k.kendaraanId}, kuota=${k.kuotaAwal}',
+        );
+        print(
+          '  New:      satker=${newKupon.satkerId}, bbm=${newKupon.jenisBbmId}, kendaraan=${newKupon.kendaraanId}, kuota=${newKupon.kuotaAwal}',
+        );
+        print('  Identical: $isIdentical');
+      }
+
+      return isIdentical;
+      // Jika SEMUA field di atas sama, baru dianggap duplikat sejati
+    }).toList();
 
     if (duplicate.isNotEmpty) {
-      return KuponValidationResult(
-        isValid: false,
-        messages: [
-          'Kupon ${newKupon.nomorKupon} sudah ada di sistem untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
-        ],
-      );
+      // Cek apakah duplikat identik dari database atau batch saat ini
+      final duplicateFromDatabase = existingKupons.any((k) {
+        return k.nomorKupon == newKupon.nomorKupon &&
+            k.bulanTerbit == newKupon.bulanTerbit &&
+            k.tahunTerbit == newKupon.tahunTerbit &&
+            k.jenisKuponId == newKupon.jenisKuponId &&
+            k.satkerId == newKupon.satkerId &&
+            k.jenisBbmId == newKupon.jenisBbmId &&
+            k.kendaraanId == newKupon.kendaraanId &&
+            k.kuotaAwal == newKupon.kuotaAwal;
+      });
+
+      final duplicateFromCurrentBatch = (currentBatchKupons ?? []).any((k) {
+        return k.nomorKupon == newKupon.nomorKupon &&
+            k.bulanTerbit == newKupon.bulanTerbit &&
+            k.tahunTerbit == newKupon.tahunTerbit &&
+            k.jenisKuponId == newKupon.jenisKuponId &&
+            k.satkerId == newKupon.satkerId &&
+            k.jenisBbmId == newKupon.jenisBbmId &&
+            k.kendaraanId == newKupon.kendaraanId &&
+            k.kuotaAwal == newKupon.kuotaAwal;
+      });
+
+      String duplicateSource = '';
+      if (duplicateFromDatabase && duplicateFromCurrentBatch) {
+        duplicateSource = ' (ada di DATABASE dan BATCH saat ini)';
+      } else if (duplicateFromDatabase) {
+        duplicateSource = ' (sudah ada di DATABASE dari import sebelumnya)';
+      } else if (duplicateFromCurrentBatch) {
+        duplicateSource = ' (duplikat dalam FILE EXCEL yang sama)';
+      }
+
+      // Get BBM type name untuk pesan yang lebih jelas
+      final bbmName = newKupon.jenisBbmId == 1
+          ? 'Pertamax'
+          : 'Dex'; // Hanya ada Pertamax (1) dan Dex (2)
+
+      final jenisKuponName = newKupon.jenisKuponId == 1 ? 'RANJEN' : 'DUKUNGAN';
+
+      // Pesan untuk duplikat identik (semua field sama)
+      final detailMessage =
+          'DUPLIKAT IDENTIK: Kupon $jenisKuponName ${newKupon.nomorKupon} ($bbmName) '
+          'untuk satker ${newKupon.namaSatker} dengan SEMUA data yang sama sudah ada di sistem '
+          'untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}$duplicateSource. '
+          'Data: kuota=${newKupon.kuotaAwal}, kendaraanId=${newKupon.kendaraanId}';
+
+      return KuponValidationResult(isValid: false, messages: [detailMessage]);
     }
 
     return KuponValidationResult(isValid: true);
   }
 
   // Validasi eligibilitas satker untuk dukungan
+  // PERBAIKAN: Hilangkan pembatasan eligibilitas - semua satker bisa mendapat kupon DUKUNGAN
   KuponValidationResult validateSatkerEligibilityForDukungan(
     KuponModel newKupon,
   ) {
+    // TIDAK ADA PEMBATASAN LAGI - semua satker eligible untuk kupon DUKUNGAN
     if (newKupon.jenisKuponId == 2) {
-      // 2 = DUKUNGAN
-      if (!EligibleSatker.isEligibleForDukungan(newKupon.namaSatker)) {
-        return KuponValidationResult(
-          isValid: false,
-          messages: [
-            'Satker ${newKupon.namaSatker} tidak memiliki hak untuk mendapatkan kupon DUKUNGAN',
-          ],
-        );
-      }
+      print(
+        'INFO: Kupon DUKUNGAN untuk satker ${newKupon.namaSatker} - DIIZINKAN (pembatasan dihapus)',
+      );
     }
     return KuponValidationResult(isValid: true);
   }

@@ -97,6 +97,7 @@ class EnhancedImportService {
     print('DEBUG: Starting import for file: $fileName');
 
     final existingKupons = await _kuponRepository.getAllKupon();
+    print('DEBUG: Found ${existingKupons.length} existing kupons in database');
     final existingKuponModels = existingKupons
         .map(
           (entity) => KuponModel(
@@ -158,6 +159,144 @@ class EnhancedImportService {
     final newKendaraans = parseResult.newKendaraans;
     final duplicateKupons = parseResult.duplicateKupons;
     final duplicateCount = duplicateKupons.length;
+
+    // LOGGING: Analisis hasil parsing
+    print('DEBUG: Parse results - New kupons: ${newKupons.length}');
+    print('DEBUG: Parse results - New kendaraans: ${newKendaraans.length}');
+    print('DEBUG: Parse results - Duplicates: $duplicateCount');
+    print('DEBUG: Existing kupons in database: ${existingKupons.length}');
+
+    // Analisis nomor kupon untuk debug duplikasi
+    final nomorKuponStats = <String, int>{};
+    for (final kupon in newKupons) {
+      nomorKuponStats[kupon.nomorKupon] =
+          (nomorKuponStats[kupon.nomorKupon] ?? 0) + 1;
+    }
+
+    // Log kupon dengan nomor yang sama
+    final repeatedNumbers = nomorKuponStats.entries
+        .where((e) => e.value > 1)
+        .map((e) => '${e.key}: ${e.value}x')
+        .toList();
+
+    // Analisis breakdown per jenis kupon
+    final ranjenCount = newKupons.where((k) => k.jenisKuponId == 1).length;
+    final dukunganCount = newKupons.where((k) => k.jenisKuponId == 2).length;
+    final pertamaxCount = newKupons.where((k) => k.jenisBbmId == 1).length;
+    final dexCount = newKupons.where((k) => k.jenisBbmId == 2).length;
+
+    // Analisis range nomor kupon
+    final allNumbers = nomorKuponStats.keys.map(int.parse).toList()..sort();
+    final minNumber = allNumbers.isNotEmpty ? allNumbers.first : 0;
+    final maxNumber = allNumbers.isNotEmpty ? allNumbers.last : 0;
+    final totalUniqueNumbers = allNumbers.length;
+
+    print('DEBUG: DETAILED BREAKDOWN:');
+    print('  📊 Total kupons parsed: ${newKupons.length}');
+    print('  🚛 RANJEN count: $ranjenCount');
+    print('  ⛽ DUKUNGAN count: $dukunganCount');
+    print('  🟢 Pertamax count: $pertamaxCount');
+    print('  🔵 Dex count: $dexCount');
+    print(
+      '  📝 Unique nomor kupon: $totalUniqueNumbers (range: $minNumber-$maxNumber)',
+    );
+    print(
+      '  🔢 Expected total for full range: ${(maxNumber - minNumber + 1) * 3} (1 RANJEN + 2 DUKUNGAN per nomor)',
+    );
+
+    if (repeatedNumbers.isNotEmpty) {
+      print(
+        'DEBUG: Kupon numbers with multiple entries (first 20): ${repeatedNumbers.take(20).join(', ')}',
+      );
+      print(
+        'DEBUG: This is NORMAL - same numbers can exist for different BBM types/vehicles',
+      );
+    }
+
+    // Analisis duplikat yang ditemukan dengan detail lengkap
+    if (duplicateCount > 0) {
+      print('DEBUG: Analyzing ${duplicateCount} duplicates in detail:');
+      final duplicateStats = <String, List<KuponModel>>{};
+
+      for (final dup in duplicateKupons) {
+        final key = '${dup.nomorKupon}-${dup.namaSatker}';
+        if (!duplicateStats.containsKey(key)) {
+          duplicateStats[key] = [];
+        }
+        duplicateStats[key]!.add(dup);
+      }
+
+      duplicateStats.forEach((key, dupList) {
+        print('  📋 $key: ${dupList.length} duplicates');
+
+        if (dupList.length > 1) {
+          // Analisis apakah benar-benar identik atau ada perbedaan
+          final first = dupList.first;
+          bool hasVariations = false;
+
+          for (int i = 1; i < dupList.length; i++) {
+            final current = dupList[i];
+            final differences = <String>[];
+
+            if (first.kuotaAwal != current.kuotaAwal) {
+              differences.add(
+                'kuota: ${first.kuotaAwal} vs ${current.kuotaAwal}',
+              );
+              hasVariations = true;
+            }
+            if (first.jenisBbmId != current.jenisBbmId) {
+              differences.add(
+                'BBM: ${first.jenisBbmId} vs ${current.jenisBbmId}',
+              );
+              hasVariations = true;
+            }
+            if (first.kendaraanId != current.kendaraanId) {
+              differences.add(
+                'kendaraan: ${first.kendaraanId} vs ${current.kendaraanId}',
+              );
+              hasVariations = true;
+            }
+            if (first.tanggalMulai != current.tanggalMulai) {
+              differences.add(
+                'tgl mulai: ${first.tanggalMulai} vs ${current.tanggalMulai}',
+              );
+              hasVariations = true;
+            }
+            if (first.tanggalSampai != current.tanggalSampai) {
+              differences.add(
+                'tgl sampai: ${first.tanggalSampai} vs ${current.tanggalSampai}',
+              );
+              hasVariations = true;
+            }
+
+            if (differences.isNotEmpty) {
+              print(
+                '    ⚠️  Entry ${i + 1} berbeda: ${differences.join(', ')}',
+              );
+              // Tambahan info untuk RANJEN dengan kendaraan berbeda
+              if (first.jenisKuponId == 1 &&
+                  first.kendaraanId != current.kendaraanId) {
+                print(
+                  '    🚗 Kemungkinan ranmor berbeda untuk nomor kupon sama - INI VALID',
+                );
+              }
+            } else {
+              print('    ✅ Entry ${i + 1} IDENTIK 100%');
+            }
+          }
+
+          if (!hasVariations) {
+            print(
+              '    🔄 Semua entry untuk $key IDENTIK SEMPURNA - ini duplikat murni',
+            );
+          } else {
+            print(
+              '    🤔 Ada variasi data untuk $key - mungkin bukan duplikat sejati',
+            );
+          }
+        }
+      });
+    }
     final totalKupons = newKupons.length + duplicateCount;
 
     // Step 2: Create import session
