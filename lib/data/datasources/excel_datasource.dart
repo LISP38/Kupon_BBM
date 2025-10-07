@@ -52,8 +52,120 @@ class ExcelDatasource {
     String filePath,
     List<KuponModel> existingKupons,
   ) async {
-    final bytes = File(filePath).readAsBytesSync();
-    final excel = Excel.decodeBytes(bytes);
+    // Validasi file sebelum parsing
+    final file = File(filePath);
+
+    // Cek apakah file ada
+    if (!file.existsSync()) {
+      throw Exception(
+        'FILE TIDAK DITEMUKAN!\n\nFile "$filePath" tidak ada atau sudah dipindah.',
+      );
+    }
+
+    // Cek ukuran file (max 50MB untuk safety)
+    final fileSize = file.lengthSync();
+    if (fileSize > 50 * 1024 * 1024) {
+      throw Exception(
+        'FILE TERLALU BESAR!\n\n'
+        'Ukuran file: ${(fileSize / 1024 / 1024).toStringAsFixed(1)} MB\n'
+        'Maksimum: 50 MB\n\n'
+        'Silakan pecah data menjadi beberapa file kecil.',
+      );
+    }
+
+    // Cek ekstensi file
+    final extension = filePath.toLowerCase();
+    if (!extension.endsWith('.xlsx') && !extension.endsWith('.xls')) {
+      throw Exception(
+        'FORMAT FILE SALAH!\n\n'
+        'File harus berformat Excel (.xlsx atau .xls)\n'
+        'File Anda: ${extension.split('.').last.toUpperCase()}',
+      );
+    }
+
+    // Warning khusus untuk file .xls (format lama)
+    if (extension.endsWith('.xls')) {
+      print(
+        'WARNING: File format .xls detected. Recommend converting to .xlsx for better compatibility.',
+      );
+    }
+
+    late final bytes;
+    late final Excel excel;
+
+    try {
+      bytes = File(filePath).readAsBytesSync();
+    } catch (e) {
+      throw Exception(
+        'GAGAL MEMBACA FILE!\n\nError: ${e.toString()}\n\nPastikan file tidak sedang dibuka di aplikasi lain.',
+      );
+    }
+
+    try {
+      excel = Excel.decodeBytes(bytes);
+    } catch (e) {
+      final errorMsg = e.toString().toLowerCase();
+
+      if (errorMsg.contains('numfmtid') || errorMsg.contains('format')) {
+        throw Exception(
+          'FORMAT EXCEL TIDAK KOMPATIBEL!\n\n'
+          'Solusi:\n'
+          '1. Buka file Excel Anda\n'
+          '2. Pilih File > Save As\n'
+          '3. Pilih format "Excel Workbook (.xlsx)"\n'
+          '4. Pastikan tidak ada formatting khusus (conditional formatting, custom number formats)\n'
+          '5. Coba import ulang\n\n'
+          'Atau gunakan template yang disediakan aplikasi.',
+        );
+      } else if (errorMsg.contains('password') ||
+          errorMsg.contains('encrypted')) {
+        throw Exception(
+          'FILE EXCEL TERPROTEKSI!\n\n'
+          'File Excel ini memiliki password atau enkripsi.\n'
+          'Silakan hapus proteksi terlebih dahulu sebelum import.',
+        );
+      } else if (errorMsg.contains('corrupted') ||
+          errorMsg.contains('invalid')) {
+        throw Exception(
+          'FILE EXCEL RUSAK!\n\n'
+          'File Excel tidak dapat dibaca. Kemungkinan file rusak.\n'
+          'Silakan gunakan file backup atau buat ulang file Excel.',
+        );
+      } else if (errorMsg.contains('version') ||
+          errorMsg.contains('unsupported')) {
+        throw Exception(
+          'VERSI EXCEL TIDAK DIDUKUNG!\n\n'
+          'Solusi:\n'
+          '1. Buka file dengan Excel/LibreOffice terbaru\n'
+          '2. Save As dengan format .xlsx (Excel 2007+)\n'
+          '3. Hindari format .xls (Excel 97-2003)\n'
+          '4. Coba import ulang',
+        );
+      } else {
+        throw Exception(
+          'GAGAL MEMBACA FILE EXCEL!\n\n'
+          'Error: ${e.toString()}\n\n'
+          'Solusi umum:\n'
+          '1. Pastikan file berformat .xlsx\n'
+          '2. Tutup file Excel jika sedang terbuka\n'
+          '3. Periksa ukuran file (max 50MB)\n'
+          '4. Gunakan template yang disediakan\n'
+          '5. Coba save ulang dengan Excel/LibreOffice terbaru',
+        );
+      }
+    }
+
+    // Validasi sheet availability
+    if (excel.tables.isEmpty) {
+      throw Exception(
+        'FILE EXCEL KOSONG!\n\n'
+        'File Excel tidak memiliki sheet atau data.\n'
+        'Pastikan file memiliki minimal satu sheet dengan data kupon.',
+      );
+    }
+
+    final sheetNames = excel.tables.keys.toList();
+    print('DEBUG: Available sheets: $sheetNames');
 
     final kupons = <KuponModel>[];
     final newKendaraans = <KendaraanModel>[];
@@ -61,13 +173,25 @@ class ExcelDatasource {
     final duplicateKendaraans = <KendaraanModel>[];
     final validationMessages = <String>[];
 
-    // Hanya ambil sheet pertama
-    if (excel.tables.isEmpty) {
-      throw Exception('File Excel tidak memiliki sheet');
-    }
+    // Ambil sheet pertama
     final sheet = excel.tables[excel.tables.keys.first]!;
 
+    // Validasi sheet memiliki data
+    if (sheet.rows.isEmpty) {
+      throw Exception(
+        'SHEET KOSONG!\n\n'
+        'Sheet "${excel.tables.keys.first}" tidak memiliki data.\n'
+        'Pastikan sheet memiliki data kupon yang valid.',
+      );
+    }
+
+    print(
+      'DEBUG: Sheet "${excel.tables.keys.first}" has ${sheet.rows.length} rows',
+    );
+
     // Langsung proses semua baris sebagai data (tanpa header)
+    int processedRows = 0;
+
     for (int i = 0; i < sheet.rows.length; i++) {
       final row = sheet.rows[i];
       final rowNumber = i + 1;
@@ -75,9 +199,13 @@ class ExcelDatasource {
         // Parse data dari row
         final data = await _parseRow(row);
         if (data != null) {
+          processedRows++;
           final (kupon, kendaraan) = data;
+          print(
+            'DEBUG - Row $rowNumber -> Kupon: ${kupon.nomorKupon} (${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"})',
+          );
 
-          // Validasi business rules - berbeda untuk RANJEN dan DUKUNGAN
+          // SOLUSI: Improved validation with better error categorization
           final noPol = kendaraan != null
               ? '${kendaraan.noPolNomor}-${kendaraan.noPolKode}'
               : 'N/A (DUKUNGAN)';
@@ -121,12 +249,35 @@ class ExcelDatasource {
                 'Baris $rowNumber: DUPLIKAT - ${validationResult.messages.join(", ")}',
               );
             } else {
-              // Error lain - masukkan ke validation messages saja
-              validationMessages.addAll(
-                validationResult.messages.map(
-                  (msg) => 'Baris $rowNumber: $msg',
-                ),
+              // PERBAIKAN: Kategorikan error - beberapa bisa diabaikan untuk tetap melanjutkan proses
+              final isCriticalError = validationResult.messages.any(
+                (msg) =>
+                    msg.toLowerCase().contains('tidak valid') ||
+                    msg.toLowerCase().contains('kosong') ||
+                    msg.toLowerCase().contains('format'),
               );
+
+              if (isCriticalError) {
+                // Error kritis - skip kupon ini
+                validationMessages.addAll(
+                  validationResult.messages.map(
+                    (msg) => 'Baris $rowNumber: CRITICAL ERROR - $msg',
+                  ),
+                );
+              } else {
+                // Non-critical error - bisa tetap diproses dengan warning
+                validationMessages.addAll(
+                  validationResult.messages.map(
+                    (msg) => 'Baris $rowNumber: WARNING - $msg',
+                  ),
+                );
+
+                // Tetap tambahkan ke list untuk diproses
+                kupons.add(kupon);
+                if (kendaraan != null) {
+                  newKendaraans.add(kendaraan);
+                }
+              }
             }
           } else {
             // Validasi berhasil - ini kupon baru
@@ -140,6 +291,13 @@ class ExcelDatasource {
         validationMessages.add('Error pada baris $rowNumber: ${e.toString()}');
       }
     }
+
+    print(
+      'DEBUG - Total rows processed: $processedRows out of ${sheet.rows.length} rows',
+    );
+    print('DEBUG - Final kupon count: ${kupons.length}');
+    print('DEBUG - Final duplicate count: ${duplicateKupons.length}');
+    print('DEBUG - Total expected: ${kupons.length + duplicateKupons.length}');
 
     return ExcelParseResult(
       kupons: kupons,
@@ -168,15 +326,25 @@ class ExcelDatasource {
 
     // Skip if both first and second columns are empty
     if (cell0.isEmpty && cell1.isEmpty) {
-      print('Debug - Skipping empty row');
+      print('Debug - Skipping empty row (both cols empty)');
       return null;
     }
 
     // Skip if it looks like a header - lebih comprehensive check
-    if (cell0.toLowerCase().contains('jenis') ||
-        cell1.toLowerCase().contains('no') ||
-        cell0.toLowerCase().contains('kupon') ||
-        cell1.toLowerCase().contains('kupon')) {
+    final cell0Lower = cell0.toLowerCase();
+    final cell1Lower = cell1.toLowerCase();
+
+    // Comprehensive header detection
+    if (cell0Lower.contains('jenis') ||
+        cell1Lower.contains('no') ||
+        cell0Lower.contains('kupon') ||
+        cell1Lower.contains('kupon') ||
+        cell0Lower.contains('ranjen') ||
+        cell0Lower.contains('dukungan') ||
+        cell1Lower.contains('nomor') ||
+        cell1Lower.contains('seri') ||
+        cell0Lower == 'type' ||
+        cell1Lower == 'number') {
       print('Debug - Skipping header row: "$cell0", "$cell1"');
       return null;
     }
@@ -186,6 +354,12 @@ class ExcelDatasource {
       print(
         'Debug - Skipping incomplete row: jenisKupon="$cell0", noKupon="$cell1"',
       );
+      return null;
+    }
+
+    // Skip baris yang hanya berisi angka atau teks formatting
+    if (RegExp(r'^\d+$').hasMatch(cell0) && cell1.trim().isEmpty) {
+      print('Debug - Skipping formatting/numbering row: "$cell0"');
       return null;
     }
 
@@ -228,7 +402,22 @@ class ExcelDatasource {
     }
 
     final jenisRanmor = _getCellString(row, 4);
-    final satker = _getCellString(row, 5);
+    final satkerRaw = _getCellString(row, 5);
+
+    // Untuk DUKUNGAN dengan satker kosong, otomatis set sebagai CADANGAN
+    final isDukunganCheck = jenisKupon.toLowerCase().contains('dukungan');
+    String satker;
+    if (isDukunganCheck &&
+        (satkerRaw.isEmpty ||
+            satkerRaw.toLowerCase() == 'null' ||
+            satkerRaw == '-')) {
+      satker = 'CADANGAN';
+      print(
+        'Debug - Auto-assigned CADANGAN for empty satker in DUKUNGAN kupon',
+      );
+    } else {
+      satker = satkerRaw;
+    }
 
     // No Pol - Handle untuk kupon DUKUNGAN yang bisa kosong
     final noPolStr = _getCellString(row, 6);
@@ -337,9 +526,15 @@ class ExcelDatasource {
       limit: 1,
     );
 
-    final satkerId = satkerResult.isNotEmpty
-        ? satkerResult.first['satker_id'] as int
-        : 1;
+    int satkerId;
+    if (satkerResult.isNotEmpty) {
+      satkerId = satkerResult.first['satker_id'] as int;
+    } else {
+      // Jika satker tidak ditemukan, buat entry baru
+      // Terutama untuk CADANGAN DUKUNGAN
+      satkerId = await db.insert('dim_satker', {'nama_satker': satker});
+      print('Created new satker: $satker with ID: $satkerId');
+    }
 
     // Hanya buat KendaraanModel untuk kupon RANJEN
     KendaraanModel? kendaraan;

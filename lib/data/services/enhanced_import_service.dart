@@ -325,269 +325,221 @@ class EnhancedImportService {
     int successCount = 0;
     int errorCount = 0;
 
-    // Use a single database transaction to ensure atomicity
     final db = await _databaseDatasource.database;
     final Map<String, int> kendaraanIdMap = {};
 
-    try {
-      await db.transaction((txn) async {
-        // Step 1: Process kendaraan records first to ensure they exist before inserting kupons
-        print(
-          'Processing ${newKendaraans.length} kendaraans...',
-        ); // Process all unique kendaraans
-        for (final kendaraan in newKendaraans) {
-          final key = '${kendaraan.noPolKode}${kendaraan.noPolNomor}';
-          print('Processing kendaraan: $key');
+    // SOLUSI 1: Process kendaraan terlebih dahulu di luar transaction
+    print('Processing ${newKendaraans.length} kendaraans...');
+    for (final kendaraan in newKendaraans) {
+      final key = '${kendaraan.noPolKode}${kendaraan.noPolNomor}';
 
-          // Skip if already processed
-          if (kendaraanIdMap.containsKey(key)) {
-            print('Skipping already processed kendaraan: $key');
-            continue;
-          }
-
-          try {
-            // Check if kendaraan already exists within transaction
-            final existingResult = await txn.query(
-              'dim_kendaraan',
-              where: 'no_pol_kode = ? AND no_pol_nomor = ?',
-              whereArgs: [kendaraan.noPolKode, kendaraan.noPolNomor],
-            );
-
-            int kendaraanId;
-            if (existingResult.isNotEmpty) {
-              // Use existing kendaraan ID
-              kendaraanId = existingResult.first['kendaraan_id'] as int;
-              print(
-                'Found existing kendaraan with ID: $kendaraanId for key: $key',
-              );
-            } else {
-              // Insert new kendaraan within transaction
-              kendaraanId = await txn.insert(
-                'dim_kendaraan',
-                kendaraan.toMap(),
-                conflictAlgorithm: ConflictAlgorithm.replace,
-              );
-              print(
-                'Inserted new kendaraan with ID: $kendaraanId for key: $key',
-              );
-
-              // Verify the insertion was successful
-              final verifyResult = await txn.query(
-                'dim_kendaraan',
-                where: 'kendaraan_id = ?',
-                whereArgs: [kendaraanId],
-              );
-              if (verifyResult.isEmpty) {
-                throw Exception(
-                  'Failed to verify kendaraan insertion with ID: $kendaraanId',
-                );
-              }
-              print('Verified kendaraan insertion: ${verifyResult.first}');
-            }
-
-            // Map kendaraan key to ID for kupon processing
-            kendaraanIdMap[key] = kendaraanId;
-            print('Mapped $key -> ID: $kendaraanId');
-          } catch (e) {
-            print('ERROR processing kendaraan $key: $e');
-            throw e; // Re-throw to abort transaction
-          }
-        }
-
-        print('Kendaraan processing complete. ID Map: $kendaraanIdMap');
-
-        // Step 2: Process kupon records with updated kendaraan IDs within the same transaction
-        print('Processing ${newKupons.length} kupons...');
-        print('Available kendaraans: ${newKendaraans.length}');
-        print('KendaraanIdMap has ${kendaraanIdMap.length} entries');
-
-        for (int i = 0; i < newKupons.length; i++) {
-          final kupon = newKupons[i];
-          print('Processing kupon $i: ${kupon.nomorKupon}');
-
-          try {
-            // Handle kupon DUKUNGAN (jenisKuponId == 2) yang tidak memiliki kendaraan
-            if (kupon.jenisKuponId == 2) {
-              // Kupon DUKUNGAN - cari kendaraan dari kupon RANJEN yang sesuai
-              print('Processing DUKUNGAN kupon: ${kupon.nomorKupon}');
-
-              // Cari kupon RANJEN di database untuk satker dan periode yang sama
-              final ranjenKupons = await txn.query(
-                'fact_kupon',
-                where: '''
-                  satker_id = ? AND 
-                  jenis_kupon_id = 1 AND 
-                  bulan_terbit = ? AND 
-                  tahun_terbit = ?
-                ''',
-                whereArgs: [
-                  kupon.satkerId,
-                  kupon.bulanTerbit,
-                  kupon.tahunTerbit,
-                ],
-              );
-
-              int? kendaraanId;
-              if (ranjenKupons.isNotEmpty) {
-                kendaraanId = ranjenKupons.first['kendaraan_id'] as int?;
-                print('Found RANJEN kupon with kendaraan_id: $kendaraanId');
-              } else {
-                print(
-                  'No RANJEN kupon found for DUKUNGAN - using null kendaraan_id',
-                );
-              }
-
-              // Insert kupon DUKUNGAN dengan kendaraan_id dari RANJEN atau null
-              final dukunganKupon = kupon.copyWith(kendaraanId: kendaraanId);
-
-              await txn.insert(
-                'fact_kupon',
-                dukunganKupon.toMap(),
-                conflictAlgorithm: ConflictAlgorithm.replace,
-              );
-              successCount++;
-            } else {
-              // Kupon RANJEN - cari kendaraan yang sesuai berdasarkan satker dan periode
-              print('Processing RANJEN kupon: ${kupon.nomorKupon}');
-
-              // Cari kendaraan yang sesuai untuk kupon RANJEN berdasarkan satkerId dan periode
-              KendaraanModel? correspondingKendaraan;
-              for (final kendaraan in newKendaraans) {
-                if (kendaraan.satkerId == kupon.satkerId) {
-                  correspondingKendaraan = kendaraan;
-                  break;
-                }
-              }
-
-              if (correspondingKendaraan != null) {
-                final key =
-                    '${correspondingKendaraan.noPolKode}${correspondingKendaraan.noPolNomor}';
-                print(
-                  'RANJEN kupon ${kupon.nomorKupon} corresponds to kendaraan: $key',
-                );
-                final kendaraanId = kendaraanIdMap[key];
-                print(
-                  'Looking up kendaraan ID for key: $key, found: $kendaraanId',
-                );
-
-                if (kendaraanId != null && kendaraanId != 0) {
-                  // Update kupon with correct kendaraan ID and insert within transaction
-                  final updatedKupon = kupon.copyWith(kendaraanId: kendaraanId);
-
-                  print('Original kupon kendaraan_id: ${kupon.kendaraanId}');
-                  print(
-                    'Updated kupon kendaraan_id: ${updatedKupon.kendaraanId}',
-                  );
-                  print(
-                    'Inserting kupon ${kupon.nomorKupon} with kendaraanId: $kendaraanId',
-                  );
-
-                  await txn.insert(
-                    'fact_kupon',
-                    updatedKupon.toMap(),
-                    conflictAlgorithm: ConflictAlgorithm.replace,
-                  );
-                  successCount++;
-                } else {
-                  print('ERROR: Kendaraan ID not found or is 0 for key: $key');
-                  print('kendaraanId value: $kendaraanId');
-                  print(
-                    'Available keys in map: ${kendaraanIdMap.keys.toList()}',
-                  );
-                  print('Full kendaraanIdMap: $kendaraanIdMap');
-
-                  throw Exception(
-                    'Kendaraan ID not found for corresponding kendaraan: $key',
-                  );
-                }
-              } else {
-                // Kupon RANJEN tanpa kendaraan yang sesuai - ini error
-                throw Exception(
-                  'RANJEN kupon ${kupon.nomorKupon} (satker: ${kupon.satkerId}) must have corresponding kendaraan',
-                );
-              }
-            }
-          } catch (e) {
-            errorCount++;
-            print('ERROR processing kupon ${kupon.nomorKupon}: $e');
-            throw e; // Re-throw to abort transaction
-          }
-        }
-      });
-
-      // Transaction completed successfully
-      print('Transaction completed successfully. Logging import history...');
-
-      // Log successful operations after transaction
-      for (final entry in kendaraanIdMap.entries) {
-        final key = entry.key;
-
-        // Find corresponding kendaraan for logging
-        final kendaraan = newKendaraans.firstWhere(
-          (k) => '${k.noPolKode}${k.noPolNomor}' == key,
-          orElse: () => throw Exception('Kendaraan not found for key: $key'),
-        );
-
-        await _importHistoryRepository.logImportDetail(
-          sessionId: sessionId,
-          kuponData: jsonEncode(kendaraan.toMap()),
-          status: 'SUCCESS',
-          action: 'INSERT_KENDARAAN',
-        );
+      if (kendaraanIdMap.containsKey(key)) {
+        continue; // Skip if already processed
       }
 
-      // Log successful kupon operations
-      for (final kupon in newKupons) {
-        if (kupon.jenisKuponId == 1) {
-          // Kupon RANJEN - cari kendaraan yang sesuai
-          KendaraanModel? correspondingKendaraan;
-          for (final k in newKendaraans) {
-            if (k.satkerId == kupon.satkerId) {
-              correspondingKendaraan = k;
-              break;
-            }
+      try {
+        // Check if kendaraan already exists
+        final existingResult = await db.query(
+          'dim_kendaraan',
+          where: 'no_pol_kode = ? AND no_pol_nomor = ?',
+          whereArgs: [kendaraan.noPolKode, kendaraan.noPolNomor],
+        );
+
+        int kendaraanId;
+        if (existingResult.isNotEmpty) {
+          kendaraanId = existingResult.first['kendaraan_id'] as int;
+          print('Found existing kendaraan with ID: $kendaraanId for key: $key');
+        } else {
+          kendaraanId = await db.insert(
+            'dim_kendaraan',
+            kendaraan.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          print('Inserted new kendaraan with ID: $kendaraanId for key: $key');
+        }
+
+        kendaraanIdMap[key] = kendaraanId;
+      } catch (e) {
+        print('ERROR processing kendaraan $key: $e');
+        // Continue processing other kendaraan instead of failing completely
+        await _importHistoryRepository.logImportDetail(
+          sessionId: sessionId,
+          kuponData: 'KENDARAAN_ERROR: $key',
+          status: 'ERROR',
+          errorMessage: 'Failed to process kendaraan: $e',
+          action: 'INSERT_KENDARAAN_FAILED',
+        );
+      }
+    }
+
+    // SOLUSI 2: Separate RANJEN and DUKUNGAN processing with individual transactions
+    // Process RANJEN first to establish kendaraan dependencies
+    final ranjenKupons = newKupons.where((k) => k.jenisKuponId == 1).toList();
+    final dukunganKupons = newKupons.where((k) => k.jenisKuponId == 2).toList();
+
+    print('Processing ${ranjenKupons.length} RANJEN kupons...');
+    for (final kupon in ranjenKupons) {
+      try {
+        // Find corresponding kendaraan
+        KendaraanModel? correspondingKendaraan;
+        for (final kendaraan in newKendaraans) {
+          if (kendaraan.satkerId == kupon.satkerId) {
+            correspondingKendaraan = kendaraan;
+            break;
           }
+        }
 
-          if (correspondingKendaraan != null) {
-            final key =
-                '${correspondingKendaraan.noPolKode}${correspondingKendaraan.noPolNomor}';
-            final kendaraanId = kendaraanIdMap[key];
+        if (correspondingKendaraan != null) {
+          final key =
+              '${correspondingKendaraan.noPolKode}${correspondingKendaraan.noPolNomor}';
+          final kendaraanId = kendaraanIdMap[key];
 
-            if (kendaraanId != null) {
-              final updatedKupon = kupon.copyWith(kendaraanId: kendaraanId);
+          if (kendaraanId != null && kendaraanId != 0) {
+            final updatedKupon = kupon.copyWith(kendaraanId: kendaraanId);
 
-              await _importHistoryRepository.logImportDetail(
-                sessionId: sessionId,
-                kuponData: jsonEncode(updatedKupon.toMap()),
-                status: 'SUCCESS',
-                action: 'INSERT',
-              );
-            }
+            await db.insert(
+              'fact_kupon',
+              updatedKupon.toMap(),
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+
+            successCount++;
+            print('✅ Successfully inserted RANJEN kupon: ${kupon.nomorKupon}');
+
+            // Log successful operation
+            await _importHistoryRepository.logImportDetail(
+              sessionId: sessionId,
+              kuponData: jsonEncode(updatedKupon.toMap()),
+              status: 'SUCCESS',
+              action: 'INSERT_RANJEN',
+            );
+          } else {
+            errorCount++;
+            final errorMsg = 'Kendaraan ID not found for key: $key';
+            print(
+              '❌ ERROR processing RANJEN kupon ${kupon.nomorKupon}: $errorMsg',
+            );
+
+            await _importHistoryRepository.logImportDetail(
+              sessionId: sessionId,
+              kuponData: jsonEncode(kupon.toMap()),
+              status: 'ERROR',
+              errorMessage: errorMsg,
+              action: 'INSERT_RANJEN_FAILED',
+            );
           }
-        } else if (kupon.jenisKuponId == 2) {
-          // Kupon DUKUNGAN - log tanpa kendaraan
+        } else {
+          errorCount++;
+          final errorMsg =
+              'No corresponding kendaraan found for satker: ${kupon.satkerId}';
+          print(
+            '❌ ERROR processing RANJEN kupon ${kupon.nomorKupon}: $errorMsg',
+          );
+
           await _importHistoryRepository.logImportDetail(
             sessionId: sessionId,
             kuponData: jsonEncode(kupon.toMap()),
-            status: 'SUCCESS',
-            action: 'INSERT',
+            status: 'ERROR',
+            errorMessage: errorMsg,
+            action: 'INSERT_RANJEN_FAILED',
           );
         }
-      }
-    } catch (e) {
-      print('Transaction failed: $e');
+      } catch (e) {
+        errorCount++;
+        print('❌ ERROR processing RANJEN kupon ${kupon.nomorKupon}: $e');
 
-      // Log error details
-      await _importHistoryRepository.logImportDetail(
-        sessionId: sessionId,
-        kuponData: jsonEncode({'error': e.toString()}),
-        status: 'ERROR',
-        errorMessage: 'Transaction failed: $e',
-        action: 'TRANSACTION_ERROR',
+        await _importHistoryRepository.logImportDetail(
+          sessionId: sessionId,
+          kuponData: jsonEncode(kupon.toMap()),
+          status: 'ERROR',
+          errorMessage: 'Failed to insert RANJEN kupon: $e',
+          action: 'INSERT_RANJEN_FAILED',
+        );
+      }
+    }
+
+    print('Processing ${dukunganKupons.length} DUKUNGAN kupons...');
+    for (final kupon in dukunganKupons) {
+      try {
+        int? kendaraanId;
+
+        // SOLUSI 3: Improved DUKUNGAN handling - check both database and current batch
+        if (kupon.namaSatker.toUpperCase() != 'CADANGAN') {
+          // For non-CADANGAN DUKUNGAN, find kendaraan from RANJEN
+          final ranjenKupons = await db.query(
+            'fact_kupon',
+            where: '''
+              satker_id = ? AND 
+              jenis_kupon_id = 1 AND 
+              bulan_terbit = ? AND 
+              tahun_terbit = ?
+            ''',
+            whereArgs: [kupon.satkerId, kupon.bulanTerbit, kupon.tahunTerbit],
+          );
+
+          if (ranjenKupons.isNotEmpty) {
+            kendaraanId = ranjenKupons.first['kendaraan_id'] as int?;
+            print(
+              'Found RANJEN kupon with kendaraan_id: $kendaraanId for DUKUNGAN ${kupon.nomorKupon}',
+            );
+          } else {
+            print(
+              'No RANJEN kupon found for DUKUNGAN ${kupon.nomorKupon} - using null kendaraan_id',
+            );
+          }
+        }
+
+        final dukunganKupon = kupon.copyWith(kendaraanId: kendaraanId);
+
+        await db.insert(
+          'fact_kupon',
+          dukunganKupon.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+
+        successCount++;
+        print('✅ Successfully inserted DUKUNGAN kupon: ${kupon.nomorKupon}');
+
+        // Log successful operation
+        await _importHistoryRepository.logImportDetail(
+          sessionId: sessionId,
+          kuponData: jsonEncode(dukunganKupon.toMap()),
+          status: 'SUCCESS',
+          action: 'INSERT_DUKUNGAN',
+        );
+      } catch (e) {
+        errorCount++;
+        print('❌ ERROR processing DUKUNGAN kupon ${kupon.nomorKupon}: $e');
+
+        await _importHistoryRepository.logImportDetail(
+          sessionId: sessionId,
+          kuponData: jsonEncode(kupon.toMap()),
+          status: 'ERROR',
+          errorMessage: 'Failed to insert DUKUNGAN kupon: $e',
+          action: 'INSERT_DUKUNGAN_FAILED',
+        );
+      }
+    }
+
+    // Log successful kendaraan operations
+    for (final entry in kendaraanIdMap.entries) {
+      final key = entry.key;
+      final kendaraan = newKendaraans.firstWhere(
+        (k) => '${k.noPolKode}${k.noPolNomor}' == key,
+        orElse: () => throw Exception('Kendaraan not found for key: $key'),
       );
 
-      throw e;
+      await _importHistoryRepository.logImportDetail(
+        sessionId: sessionId,
+        kuponData: jsonEncode(kendaraan.toMap()),
+        status: 'SUCCESS',
+        action: 'INSERT_KENDARAAN',
+      );
     }
+
+    print(
+      'Import completed with $successCount successful and $errorCount failed kupons',
+    );
 
     return {'success': successCount, 'error': errorCount};
   }
@@ -617,5 +569,106 @@ class EnhancedImportService {
       month: month,
       year: year,
     );
+  }
+
+  // SOLUSI: Method untuk analisis error import
+  Future<Map<String, dynamic>> analyzeImportErrors(int sessionId) async {
+    final session = await getImportSession(sessionId);
+    final details = await getImportDetails(sessionId);
+
+    if (session == null) {
+      return {'error': 'Session not found'};
+    }
+
+    final errorDetails = details.where((d) => d.status == 'ERROR').toList();
+
+    final errorCategories = <String, int>{};
+    final errorMessages = <String>[];
+
+    for (final error in errorDetails) {
+      final message = error.errorMessage ?? 'Unknown error';
+      errorMessages.add(message);
+
+      // Kategorikan error
+      if (message.contains('kendaraan')) {
+        errorCategories['Kendaraan Issues'] =
+            (errorCategories['Kendaraan Issues'] ?? 0) + 1;
+      } else if (message.contains('duplikat') ||
+          message.contains('sudah ada')) {
+        errorCategories['Duplicate Issues'] =
+            (errorCategories['Duplicate Issues'] ?? 0) + 1;
+      } else if (message.contains('RANJEN') || message.contains('DUKUNGAN')) {
+        errorCategories['Dependency Issues'] =
+            (errorCategories['Dependency Issues'] ?? 0) + 1;
+      } else if (message.contains('format') || message.contains('parsing')) {
+        errorCategories['Format Issues'] =
+            (errorCategories['Format Issues'] ?? 0) + 1;
+      } else {
+        errorCategories['Other Issues'] =
+            (errorCategories['Other Issues'] ?? 0) + 1;
+      }
+    }
+
+    return {
+      'session_id': sessionId,
+      'total_kupons': session.totalKupons,
+      'success_count': session.successCount,
+      'error_count': session.errorCount,
+      'duplicate_count': session.duplicateCount,
+      'error_categories': errorCategories,
+      'error_messages': errorMessages,
+      'success_rate': ((session.successCount / session.totalKupons) * 100)
+          .toStringAsFixed(2),
+      'recommendations': _generateRecommendations(
+        errorCategories,
+        errorMessages,
+      ),
+    };
+  }
+
+  List<String> _generateRecommendations(
+    Map<String, int> errorCategories,
+    List<String> errorMessages,
+  ) {
+    final recommendations = <String>[];
+
+    if (errorCategories.containsKey('Kendaraan Issues')) {
+      recommendations.add(
+        'Periksa data kendaraan: pastikan No Pol dan Kode No Pol sudah benar',
+      );
+    }
+
+    if (errorCategories.containsKey('Duplicate Issues')) {
+      recommendations.add(
+        'Hapus data duplikat dari file Excel sebelum import ulang',
+      );
+    }
+
+    if (errorCategories.containsKey('Dependency Issues')) {
+      recommendations.add(
+        'Pastikan kupon RANJEN diletakkan sebelum kupon DUKUNGAN dalam file Excel',
+      );
+      recommendations.add(
+        'Setiap kupon DUKUNGAN harus memiliki kupon RANJEN yang sesuai',
+      );
+    }
+
+    if (errorCategories.containsKey('Format Issues')) {
+      recommendations.add(
+        'Periksa format file Excel: gunakan template yang disediakan',
+      );
+      recommendations.add(
+        'Pastikan format tanggal, bulan (angka romawi), dan angka sudah benar',
+      );
+    }
+
+    recommendations.add(
+      'Gunakan fitur Preview sebelum melakukan import untuk melihat potential issues',
+    );
+    recommendations.add(
+      'Import data dalam batch kecil jika file terlalu besar',
+    );
+
+    return recommendations;
   }
 }
