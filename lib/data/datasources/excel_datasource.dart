@@ -188,6 +188,13 @@ class ExcelDatasource {
     print(
       'DEBUG: Sheet "${excel.tables.keys.first}" has ${sheet.rows.length} rows',
     );
+    
+    // Debug: Show first few rows
+    for (int i = 0; i < (sheet.rows.length > 5 ? 5 : sheet.rows.length); i++) {
+      final row = sheet.rows[i];
+      final preview = row.map((cell) => cell?.value?.toString() ?? 'NULL').take(5).join(' | ');
+      print('DEBUG - Row ${i + 1} preview: $preview');
+    }
 
     // Langsung proses semua baris sebagai data (tanpa header)
     int processedRows = 0;
@@ -330,56 +337,72 @@ class ExcelDatasource {
       return null;
     }
 
-    // Skip if it looks like a header - lebih comprehensive check
+    // Skip if it looks like a header - hanya skip header yang jelas
     final cell0Lower = cell0.toLowerCase();
     final cell1Lower = cell1.toLowerCase();
 
-    // Comprehensive header detection
-    if (cell0Lower.contains('jenis') ||
-        cell1Lower.contains('no') ||
-        cell0Lower.contains('kupon') ||
-        cell1Lower.contains('kupon') ||
-        cell0Lower.contains('ranjen') ||
-        cell0Lower.contains('dukungan') ||
-        cell1Lower.contains('nomor') ||
-        cell1Lower.contains('seri') ||
-        cell0Lower == 'type' ||
-        cell1Lower == 'number') {
-      print('Debug - Skipping header row: "$cell0", "$cell1"');
+    // Hanya skip jika ini benar-benar header bukan data
+    final isDefinitelyHeader = (
+      (cell0Lower == 'jenis' || cell0Lower == 'jenis kupon') &&
+      (cell1Lower.contains('no') || cell1Lower.contains('nomor'))
+    ) || (
+      cell0Lower == 'type' && cell1Lower == 'number'
+    ) || (
+      // Skip baris yang hanya berisi nama kolom saja
+      (cell0Lower == 'ranjen' || cell0Lower == 'dukungan') && 
+      (cell1Lower.isEmpty || cell1Lower == '-')
+    );
+
+    if (isDefinitelyHeader) {
+      print('Debug - Skipping confirmed header row: "$cell0", "$cell1"');
       return null;
     }
 
-    // Skip jika baris tidak memiliki data minimal (jenisKupon dan noKupon)
-    if (cell0.trim().isEmpty || cell1.trim().isEmpty) {
+    // Skip hanya jika kedua kolom pertama benar-benar kosong
+    if (cell0.trim().isEmpty && cell1.trim().isEmpty) {
       print(
-        'Debug - Skipping incomplete row: jenisKupon="$cell0", noKupon="$cell1"',
+        'Debug - Skipping completely empty row',
       );
       return null;
     }
+    
+    // Jika salah satu kosong, coba tetap proses (mungkin ada data di kolom lain)
+    if (cell0.trim().isEmpty || cell1.trim().isEmpty) {
+      print(
+        'Warning - Incomplete data in row: jenisKupon="$cell0", noKupon="$cell1" - will try to process',
+      );
+    }
 
-    // Skip baris yang hanya berisi angka atau teks formatting
-    if (RegExp(r'^\d+$').hasMatch(cell0) && cell1.trim().isEmpty) {
-      print('Debug - Skipping formatting/numbering row: "$cell0"');
+    // Hanya skip jika benar-benar baris numbering yang tidak relevan
+    if (RegExp(r'^\d+$').hasMatch(cell0) && cell1.trim().isEmpty && row.length < 5) {
+      print('Debug - Skipping numbering row: "$cell0" (insufficient columns)');
       return null;
     }
 
     final jenisKupon = cell0;
-    print('Debug - Jenis Kupon: "$jenisKupon"'); // Debug line
+    print('Debug - Processing row with jenisKupon: "$jenisKupon"');
+
+    // Validasi jenis kupon lebih permisif
+    final jenisKuponLower = jenisKupon.toLowerCase();
+    if (!jenisKuponLower.contains('ranjen') && !jenisKuponLower.contains('dukungan') && 
+        !jenisKuponLower.contains('1') && !jenisKuponLower.contains('2')) {
+      print('Warning - Jenis kupon tidak standar: "$jenisKupon" - akan dicoba tetap diproses');
+    }
 
     // No Kupon - DIPERBAIKI untuk handle berbagai format
     final noKuponStr = _getCellString(row, 1);
-    print('Debug - No Kupon raw: "$noKuponStr"'); // Debug line
+    print('Debug - Raw noKupon: "$noKuponStr"');
 
     if (noKuponStr.isEmpty) {
-      throw Exception('No Kupon tidak boleh kosong');
+      print('Warning - No Kupon kosong, akan skip row ini');
+      return null; // Return null instead of throwing exception
     }
 
     // Coba extract angka dari string
     final match = RegExp(r'\d+').firstMatch(noKuponStr);
     if (match == null) {
-      throw Exception(
-        'No Kupon harus mengandung angka. Ditemukan: "$noKuponStr"',
-      );
+      print('Warning - No Kupon tidak mengandung angka: "$noKuponStr" - akan skip');
+      return null; // Return null instead of throwing exception
     }
     final noKupon = match.group(0)!;
 
@@ -390,15 +413,15 @@ class ExcelDatasource {
     final bulanClean = RegExp(r'[IVXLCDM]+').stringMatch(bulanStr) ?? '';
     final bulan = _parseRomanNumeral(bulanClean);
     if (bulan == null) {
-      throw Exception(
-        'Format bulan tidak valid. Gunakan angka romawi (I-XII). Ditemukan: "$bulanStr"',
-      );
+      print('Warning - Format bulan tidak valid: "$bulanStr" - akan skip');
+      return null; // Return null instead of throwing exception
     }
 
     final tahunStr = _getCellString(row, 3);
     final tahun = int.tryParse(tahunStr) ?? 0;
-    if (tahun == 0) {
-      throw Exception('Tahun tidak valid. Ditemukan: "$tahunStr"');
+    if (tahun == 0 || tahun < 2000) {
+      print('Warning - Tahun tidak valid: "$tahunStr" - akan skip');
+      return null; // Return null instead of throwing exception
     }
 
     final jenisRanmor = _getCellString(row, 4);
