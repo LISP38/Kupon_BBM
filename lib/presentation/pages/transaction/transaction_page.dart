@@ -29,6 +29,15 @@ class _TransactionPageState extends State<TransactionPage> {
   // Filter tanggal
   DateTime? _filterTanggalMulai;
   DateTime? _filterTanggalSelesai;
+  int? _filterSatkerId;
+  List<Map<String, dynamic>> _satkerList = [
+    {'satker_id': 0, 'nama_satker': 'Cadangan'},
+    // TODO: Replace with actual satker list from provider/database if available
+    {'satker_id': 1, 'nama_satker': 'KAPOLDA'},
+    {'satker_id': 2, 'nama_satker': 'WAKAPOLDA'},
+    {'satker_id': 3, 'nama_satker': 'PROPAM'},
+    // ... add more as needed
+  ];
 
   String _getBulanName(int bulan) {
     final namaBulan = [
@@ -485,6 +494,28 @@ class _TransactionPageState extends State<TransactionPage> {
                         context,
                         listen: false,
                       ).setFilterTransaksi(tahun: val);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 180,
+                  child: DropdownButtonFormField<int>(
+                    decoration: const InputDecoration(
+                      labelText: 'Satker',
+                      border: OutlineInputBorder(),
+                    ),
+                    value: _filterSatkerId,
+                    items: _satkerList
+                        .map((s) => DropdownMenuItem<int>(
+                              value: s['satker_id'] as int,
+                              child: Text(s['nama_satker'] as String),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      setState(() {
+                        _filterSatkerId = val;
+                      });
                     },
                   ),
                 ),

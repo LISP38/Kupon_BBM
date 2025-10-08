@@ -110,34 +110,39 @@ class KuponValidator {
     String noPol, {
     List<KuponModel>? currentBatchKupons,
   }) {
-    // Gabungkan existing dan current batch untuk deteksi duplikat yang lebih komprehensif
+    // Gabungkan existing dan current batch
     final allKupons = [
       ...existingKupons,
       if (currentBatchKupons != null) ...currentBatchKupons,
     ];
 
-    // Cek apakah nomor kupon sudah ada dengan periode dan jenis yang sama
-    final duplicate = allKupons
-        .where(
-          (k) =>
-              k.nomorKupon == newKupon.nomorKupon &&
-              k.bulanTerbit == newKupon.bulanTerbit &&
-              k.tahunTerbit == newKupon.tahunTerbit &&
-              k.jenisKuponId == newKupon.jenisKuponId,
-        )
-        .toList();
+    // Cek apakah ADA baris yang identik di semua kolom (full field comparison)
+    final duplicate = allKupons.any((k) =>
+      k.jenisKuponId == newKupon.jenisKuponId &&
+      k.nomorKupon == newKupon.nomorKupon &&
+      k.satkerId == newKupon.satkerId &&
+      k.bulanTerbit == newKupon.bulanTerbit &&
+      k.tahunTerbit == newKupon.tahunTerbit &&
+      k.kuotaAwal == newKupon.kuotaAwal &&
+      k.jenisBbmId == newKupon.jenisBbmId &&
+      k.namaSatker == newKupon.namaSatker &&
+      k.kendaraanId == newKupon.kendaraanId &&
+      k.tanggalMulai == newKupon.tanggalMulai &&
+      k.tanggalSampai == newKupon.tanggalSampai
+    );
 
-    if (duplicate.isNotEmpty) {
+    if (duplicate) {
       return KuponValidationResult(
         isValid: false,
         messages: [
-          'Kupon ${newKupon.nomorKupon} sudah ada di sistem untuk periode ${newKupon.bulanTerbit}/${newKupon.tahunTerbit}',
+          'Baris kupon ${newKupon.nomorKupon} memiliki data yang identik dengan baris lain (duplikat persis, semua field sama).',
         ],
       );
     }
 
     return KuponValidationResult(isValid: true);
   }
+
 
   // Validasi eligibilitas satker untuk dukungan
   KuponValidationResult validateSatkerEligibilityForDukungan(

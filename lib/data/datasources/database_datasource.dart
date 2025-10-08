@@ -1,10 +1,71 @@
-// lib/data/datasources/database_datasource.dart
 import 'dart:io';
+import 'package:kupon_bbm_app/data/models/kupon_model.dart';
 
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseDatasource {
+  /// Batch insert kupons to fact_kupon table
+  Future<void> insertKupons(List<KuponModel> kupons) async {
+    final db = await database;
+    final batch = db.batch();
+  // Ambil mapping satker dari master
+  final satkerRows = await db.query('dim_satker');
+    final satkerMap = <String, int>{};
+    for (final row in satkerRows) {
+      final name = (row['nama_satker'] as String).trim().toLowerCase();
+      satkerMap[name] = row['satker_id'] as int;
+    }
+    for (final k in kupons) {
+      // Satker null/empty diisi 'CADANGAN' (huruf besar)
+      final namaSatker = (k.namaSatker == null || k.namaSatker.trim().isEmpty)
+          ? 'CADANGAN'
+          : k.namaSatker.trim().toUpperCase();
+      final namaSatkerLower = namaSatker.toLowerCase();
+      int? satkerId = satkerMap[namaSatkerLower];
+      if (satkerId == null) {
+        final existing = await db.query(
+          'dim_satker',
+          where: 'LOWER(TRIM(nama_satker)) = ?',
+          whereArgs: [namaSatkerLower],
+        );
+        if (existing.isNotEmpty) {
+          satkerId = existing.first['satker_id'] as int;
+          satkerMap[namaSatkerLower] = satkerId;
+        } else {
+          satkerId = await db.insert('dim_satker', {
+            'nama_satker': namaSatker,
+          });
+          satkerMap[namaSatkerLower] = satkerId;
+          print('INFO: Satker baru ditambahkan: "${namaSatker}" dengan id $satkerId');
+        }
+      }
+      // kendaraan_id: null jika jenisKuponId == 2 (DUKUNGAN)
+      final kendaraanId = (k.jenisKuponId == 2) ? null : k.kendaraanId;
+      final jenisBbmId = k.jenisBbmId;
+      final jenisKuponId = k.jenisKuponId;
+      batch.insert('fact_kupon', {
+        'nomor_kupon': k.nomorKupon,
+        'kendaraan_id': kendaraanId,
+        'jenis_bbm_id': jenisBbmId,
+        'jenis_kupon_id': jenisKuponId,
+        'bulan_terbit': k.bulanTerbit,
+        'tahun_terbit': k.tahunTerbit,
+        'tanggal_mulai': k.tanggalMulai,
+        'tanggal_sampai': k.tanggalSampai,
+        'kuota_awal': k.kuotaAwal,
+        'kuota_sisa': k.kuotaSisa,
+        'satker_id': satkerId,
+        'nama_satker': namaSatker,
+        'status': k.status,
+        'created_at': k.createdAt,
+        'updated_at': k.updatedAt,
+        'is_deleted': k.isDeleted,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+    print('DEBUG: Batch insertKupons completed: ${kupons.length} kupons');
+  }
   Database? _database;
   final String _dbFileName = 'kupon_bbm.db';
 
@@ -32,7 +93,7 @@ class DatabaseDatasource {
     return await dbFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (db) async {
           print('DEBUG: onConfigure called');
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -128,6 +189,54 @@ class DatabaseDatasource {
 
             print('DEBUG: Import history tables created');
           }
+
+          if (oldVersion < 4) {
+            // Make kendaraan_id nullable to support DUKUNGAN kupon
+            print('DEBUG: Making kendaraan_id nullable in fact_kupon');
+            
+            // Create new table with nullable kendaraan_id
+            await db.execute('''
+              CREATE TABLE fact_kupon_new (
+                kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nomor_kupon TEXT NOT NULL,
+                kendaraan_id INTEGER,
+                jenis_bbm_id INTEGER NOT NULL,
+                jenis_kupon_id INTEGER NOT NULL,
+                bulan_terbit INTEGER NOT NULL,
+                tahun_terbit INTEGER NOT NULL,
+                tanggal_mulai TEXT NOT NULL,
+                tanggal_sampai TEXT NOT NULL,
+                kuota_awal REAL NOT NULL,
+                kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
+                satker_id INTEGER NOT NULL,
+                nama_satker TEXT NOT NULL,
+                status TEXT DEFAULT 'Aktif',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER DEFAULT 0,
+                FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id)
+                  ON DELETE CASCADE ON UPDATE CASCADE,
+                FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),
+                FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id),
+                FOREIGN KEY (satker_id) REFERENCES dim_satker(satker_id)
+                  ON DELETE RESTRICT ON UPDATE CASCADE
+              );
+            ''');
+            
+            // Copy data from old table
+            await db.execute('''
+              INSERT INTO fact_kupon_new 
+              SELECT * FROM fact_kupon;
+            ''');
+            
+            // Drop old table and rename
+            await db.execute('DROP TABLE fact_kupon');
+            await db.execute(
+              'ALTER TABLE fact_kupon_new RENAME TO fact_kupon',
+            );
+            
+            print('DEBUG: fact_kupon table migrated with nullable kendaraan_id');
+          }
         },
       ),
     );
@@ -179,23 +288,23 @@ class DatabaseDatasource {
     // ---- Fact tables ----
     batch.execute('''
       CREATE TABLE IF NOT EXISTS fact_kupon (
-  kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nomor_kupon TEXT NOT NULL,
-  kendaraan_id INTEGER NOT NULL,
-  jenis_bbm_id INTEGER NOT NULL,
-  jenis_kupon_id INTEGER NOT NULL,
-  bulan_terbit INTEGER NOT NULL,
-  tahun_terbit INTEGER NOT NULL,
-  tanggal_mulai TEXT NOT NULL,
-  tanggal_sampai TEXT NOT NULL,
-  kuota_awal REAL NOT NULL,
-  kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
-  satker_id INTEGER NOT NULL,
-  nama_satker TEXT NOT NULL,
-  status TEXT DEFAULT 'Aktif',
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  is_deleted INTEGER DEFAULT 0,
+        kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nomor_kupon TEXT NOT NULL,
+        kendaraan_id INTEGER,
+        jenis_bbm_id INTEGER NOT NULL,
+        jenis_kupon_id INTEGER NOT NULL,
+        bulan_terbit INTEGER NOT NULL,
+        tahun_terbit INTEGER NOT NULL,
+        tanggal_mulai TEXT NOT NULL,
+        tanggal_sampai TEXT NOT NULL,
+        kuota_awal REAL NOT NULL,
+        kuota_sisa REAL NOT NULL CHECK (kuota_sisa >= -999999),
+        satker_id INTEGER NOT NULL,
+        nama_satker TEXT NOT NULL,
+        status TEXT DEFAULT 'Aktif',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        is_deleted INTEGER DEFAULT 0,
         FOREIGN KEY (kendaraan_id) REFERENCES dim_kendaraan(kendaraan_id)
           ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (jenis_bbm_id) REFERENCES dim_jenis_bbm(jenis_bbm_id),
@@ -308,50 +417,7 @@ class DatabaseDatasource {
         'nama_jenis_kupon': 'Dukungan',
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
-      // dim_satker
-      final List<Map<String, dynamic>> satkerList = [
-        {'id': 1, 'name': 'KAPOLDA'},
-        {'id': 2, 'name': 'WAKAPOLDA'},
-        {'id': 3, 'name': 'IRWASDA'},
-        {'id': 4, 'name': 'ROOPS'},
-        {'id': 5, 'name': 'RORENA'},
-        {'id': 6, 'name': 'RO SDM'},
-        {'id': 7, 'name': 'RO LOG'},
-        {'id': 8, 'name': 'DITINTELKAM'},
-        {'id': 9, 'name': 'DITKRIMUM'},
-        {'id': 10, 'name': 'DITKRIMSUS'},
-        {'id': 11, 'name': 'DITNARKOBA'},
-        {'id': 12, 'name': 'DITLANTAS'},
-        {'id': 13, 'name': 'DITBINMAS'},
-        {'id': 14, 'name': 'DITSAMAPTA'},
-        {'id': 15, 'name': 'DITPAMOBVIT'},
-        {'id': 16, 'name': 'DITPOLAIRUD'},
-        {'id': 17, 'name': 'SATBRIMOB'},
-        {'id': 18, 'name': 'BIDPROPAM'},
-        {'id': 19, 'name': 'BIDHUMAS'},
-        {'id': 20, 'name': 'BIDKUM'},
-        {'id': 21, 'name': 'BID TIK'},
-        {'id': 22, 'name': 'BIDDOKKES'},
-        {'id': 23, 'name': 'BIDKEU'},
-        {'id': 24, 'name': 'SPN'},
-        {'id': 25, 'name': 'DITRESSIBER'},
-        {'id': 26, 'name': 'DITLABFOR'},
-        {'id': 271, 'name': 'KOORPSPRIPIM'},
-        {'id': 272, 'name': 'YANMA'},
-        {'id': 273, 'name': 'SETUM'},
-        {'id': 28, 'name': 'SPKT'},
-        {'id': 29, 'name': 'DITTAHTI'},
-        {'id': 34, 'name': 'RUMAH SAKIT BHAYANGKARA SARTIKA ASIH (RSSA)'},
-        {'id': 35, 'name': 'RUMAH SAKIT BHAYANGKARA INDRAMAYU'},
-        {'id': 36, 'name': 'RUMAH SAKIT BHAYANGKARA BOGOR'},
-      ];
-
-      for (final s in satkerList) {
-        await txn.insert('dim_satker', {
-          'satker_id': s['id'],
-          'nama_satker': s['name'],
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
+      // dim_satker: now fully dynamic, no hardcoded list
     });
     print('DEBUG: _seedMasterData finished');
   }

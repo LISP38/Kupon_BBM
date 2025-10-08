@@ -96,18 +96,19 @@ class DashboardProvider extends ChangeNotifier {
 
       if (nopol != null && nopol!.isNotEmpty) {
         query +=
-            ' AND (COALESCE(dim_kendaraan.no_pol_kode, "") || "-" || COALESCE(dim_kendaraan.no_pol_nomor, "")) LIKE ?';
-        whereArgs.add('%${nopol!}%');
+            ' AND (LOWER(TRIM(COALESCE(dim_kendaraan.no_pol_kode, ""))) || "-" || LOWER(TRIM(COALESCE(dim_kendaraan.no_pol_nomor, "")))) LIKE ?';
+        whereArgs.add('%${nopol!.toLowerCase().trim()}%');
       }
 
       if (satker != null && satker!.isNotEmpty) {
-        query += ' AND dim_satker.nama_satker LIKE ?';
-        whereArgs.add('%${satker!}%');
+        query += ' AND LOWER(TRIM(dim_satker.nama_satker)) LIKE ?';
+        whereArgs.add('%${satker!.toLowerCase().trim()}%');
+        print('[DASHBOARD] Satker filter value: ${satker!.toLowerCase().trim()}');
       }
 
       if (jenisRanmor != null && jenisRanmor!.isNotEmpty) {
-        query += ' AND dim_kendaraan.jenis_ranmor LIKE ?';
-        whereArgs.add('%${jenisRanmor!}%');
+        query += ' AND LOWER(TRIM(dim_kendaraan.jenis_ranmor)) LIKE ?';
+        whereArgs.add('%${jenisRanmor!.toLowerCase().trim()}%');
       }
     } else {
       // Simple query without JOIN
@@ -116,6 +117,7 @@ class DashboardProvider extends ChangeNotifier {
 
     print('[DASHBOARD] Executing query: $query');
     print('[DASHBOARD] With args: $whereArgs');
+    print('[DASHBOARD] Jenis BBM filter value: ${jenisBBM?.toLowerCase().trim()}');
 
     // Execute query
     final results = await db.rawQuery(query, whereArgs);

@@ -445,10 +445,12 @@ class _DashboardPageState extends State<DashboardPage>
               await Navigator.pushNamed(context, '/import');
               // Setelah kembali dari import, refresh data
               if (mounted) {
-                Provider.of<DashboardProvider>(
+                final provider = Provider.of<DashboardProvider>(
                   context,
                   listen: false,
-                ).fetchKupons();
+                );
+                await provider.fetchSatkers();
+                await provider.fetchKupons();
               }
             },
           ),
@@ -645,136 +647,9 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildDukunganFilterSection(BuildContext context) {
+    // Use the same filter UI as Ranjen tab
     final provider = Provider.of<DashboardProvider>(context, listen: false);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _nomorKuponController,
-                    decoration: const InputDecoration(
-                      labelText: 'Nomor Kupon',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedSatker,
-                    decoration: const InputDecoration(
-                      labelText: 'Satker',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: provider.satkerList
-                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedSatker = value),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedJenisBBM,
-                    decoration: const InputDecoration(
-                      labelText: 'Jenis BBM',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _jenisBBMMap.entries
-                        .map(
-                          (e) => DropdownMenuItem(
-                            value: e.key.toString(),
-                            child: Text(e.value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedJenisBBM = value),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedBulan,
-                    decoration: const InputDecoration(
-                      labelText: 'Bulan',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _bulanList
-                        .map(
-                          (b) => DropdownMenuItem(
-                            value: b,
-                            child: Text(b.toString()),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedBulan = value),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    value: _selectedTahun,
-                    decoration: const InputDecoration(
-                      labelText: 'Tahun',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _tahunList
-                        .map(
-                          (t) => DropdownMenuItem(
-                            value: t,
-                            child: Text(t.toString()),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedTahun = value),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    provider.setFilter(
-                      nomorKupon: _nomorKuponController.text,
-                      satker: _selectedSatker,
-                      jenisBBM: _selectedJenisBBM,
-                      jenisKupon: '2', // Dukungan
-                      nopol: '', // Tidak ada nopol untuk dukungan
-                      jenisRanmor: _selectedJenisRanmor,
-                      bulanTerbit: _selectedBulan,
-                      tahunTerbit: _selectedTahun,
-                    );
-                  },
-                  icon: const Icon(Icons.search),
-                  label: const Text('Filter'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: _resetFilters,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reset Filter'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+    return _buildRanjenFilterSection(context);
   }
 
   Widget _buildRanjenTable(BuildContext context) {
@@ -879,25 +754,27 @@ class _DashboardPageState extends State<DashboardPage>
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columns: const [
-                  DataColumn(label: Text('No.')),
-                  DataColumn(label: Text('Nomor Kupon')),
-                  DataColumn(label: Text('Satker')),
-                  DataColumn(label: Text('Jenis BBM')),
-                  DataColumn(label: Text('Bulan/Tahun')),
-                  DataColumn(label: Text('Kuota Sisa')),
-                  DataColumn(label: Text('Status')),
-                ],
-                rows: kupons.asMap().entries.map((entry) {
-                  final i = entry.key + 1;
-                  final k = entry.value;
-                  return DataRow(
-                    cells: [
-                      DataCell(Text(i.toString())),
-                      DataCell(
-                        Text(
+              scrollDirection: Axis.vertical,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: const [
+                    DataColumn(label: Text('No.')),
+                    DataColumn(label: Text('Nomor Kupon')),
+                    DataColumn(label: Text('Satker')),
+                    DataColumn(label: Text('Jenis BBM')),
+                    DataColumn(label: Text('Bulan/Tahun')),
+                    DataColumn(label: Text('Kuota Sisa')),
+                    DataColumn(label: Text('Status')),
+                  ],
+                  rows: kupons.asMap().entries.map((entry) {
+                    final i = entry.key + 1;
+                    final k = entry.value;
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(i.toString())),
+                        DataCell(
+                          Text(
                           '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
                         ),
                       ),
@@ -928,8 +805,9 @@ class _DashboardPageState extends State<DashboardPage>
                         ),
                       ),
                     ],
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
           ),

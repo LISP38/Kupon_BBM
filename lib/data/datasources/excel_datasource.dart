@@ -241,13 +241,13 @@ class ExcelDatasource {
 
             if (isDuplicate) {
               // Ini duplikat - masukkan ke list duplikat untuk preview
-              duplicateKupons.add(kupon);
-              if (kendaraan != null) {
-                duplicateKendaraans.add(kendaraan);
-              }
-              validationMessages.add(
-                'Baris $rowNumber: DUPLIKAT - ${validationResult.messages.join(", ")}',
-              );
+              // duplicateKupons.add(kupon);
+              // if (kendaraan != null) {
+              //   duplicateKendaraans.add(kendaraan);
+              // }
+              // validationMessages.add(
+              //   'Baris $rowNumber: DUPLIKAT - ${validationResult.messages.join(", ")}',
+              // );
             } else {
               // PERBAIKAN: Kategorikan error - beberapa bisa diabaikan untuk tetap melanjutkan proses
               final isCriticalError = validationResult.messages.any(
@@ -299,11 +299,75 @@ class ExcelDatasource {
     print('DEBUG - Final duplicate count: ${duplicateKupons.length}');
     print('DEBUG - Total expected: ${kupons.length + duplicateKupons.length}');
 
+    final seenRows = <String>{};
+    final uniqueKupons = <KuponModel>[];
+    final uniqueKendaraans = <KendaraanModel>[];
+    final inFileDuplicateKupons = <KuponModel>[];
+    final inFileDuplicateKendaraans = <KendaraanModel>[];
+
+    for (int i = 0; i < kupons.length; i++) {
+      final k = kupons[i];
+      final kendaraan = i < newKendaraans.length ? newKendaraans[i] : null;
+
+      // Gabungkan semua kolom yang relevan dari Kupon
+      final kuponSignature = [
+        k.nomorKupon,
+        k.kendaraanId?.toString() ?? '', // biar aman kalau null (DUKUNGAN)
+        k.jenisBbmId.toString(),
+        k.jenisKuponId.toString(),
+        k.bulanTerbit.toString(),
+        k.tahunTerbit.toString(),
+        k.tanggalMulai,
+        k.tanggalSampai,
+        k.kuotaAwal.toString(),
+        k.kuotaSisa.toString(),
+        k.satkerId.toString(),
+        k.namaSatker,
+        k.status ?? '',
+      ];
+
+      // Gabungkan kolom Kendaraan (jika ada)
+      final kendaraanSignature = kendaraan != null
+          ? [
+              kendaraan.satkerId.toString(),
+              kendaraan.jenisRanmor,
+              kendaraan.noPolKode,
+              kendaraan.noPolNomor,
+              kendaraan.statusAktif.toString(),
+            ]
+          : [];
+
+      // Bentuk 1 string unik yang mewakili seluruh baris Excel
+      final rowSignature = [...kuponSignature, ...kendaraanSignature].join('|');
+
+      if (seenRows.contains(rowSignature)) {
+        // duplikat di dalam file
+        inFileDuplicateKupons.add(k);
+        if (kendaraan != null) inFileDuplicateKendaraans.add(kendaraan);
+      } else {
+        seenRows.add(rowSignature);
+        uniqueKupons.add(k);
+        if (kendaraan != null) uniqueKendaraans.add(kendaraan);
+      }
+    }
+
+
+    // Tambahkan ke pesan validasi
+    if (inFileDuplicateKupons.isNotEmpty) {
+      validationMessages.add(
+        'Terdeteksi ${inFileDuplicateKupons.length} duplikat di dalam file Excel yang sama (baris identik).',
+      );
+    }
+
+    // Setelah parsing dan validasi, simpan ke database
+    if (uniqueKupons.isNotEmpty) {
+      await _databaseDatasource.insertKupons(uniqueKupons);
+    }
     return ExcelParseResult(
-      kupons: kupons,
-      newKendaraans: newKendaraans,
-      duplicateKupons: duplicateKupons,
-      duplicateKendaraans: duplicateKendaraans,
+      kupons: uniqueKupons,
+      newKendaraans: uniqueKendaraans,
+      duplicateKupons: [...duplicateKupons, ...inFileDuplicateKupons],
+      duplicateKendaraans: [...duplicateKendaraans, ...inFileDuplicateKendaraans],
       validationMessages: validationMessages,
     );
   }
@@ -330,29 +394,24 @@ class ExcelDatasource {
       return null;
     }
 
-    // Skip if it looks like a header - lebih comprehensive check
+    // Skip if it looks like a header row
     final cell0Lower = cell0.toLowerCase();
     final cell1Lower = cell1.toLowerCase();
 
-    // Comprehensive header detection
-    if (cell0Lower.contains('jenis') ||
-        cell1Lower.contains('no') ||
-        cell0Lower.contains('kupon') ||
-        cell1Lower.contains('kupon') ||
-        cell0Lower.contains('ranjen') ||
-        cell0Lower.contains('dukungan') ||
-        cell1Lower.contains('nomor') ||
-        cell1Lower.contains('seri') ||
-        cell0Lower == 'type' ||
-        cell1Lower == 'number') {
+    // Hanya skip baris yang memang berisi kata "Jenis Kupon" atau "No Kupon"
+    final isHeaderRow = (cell0Lower.contains('jenis') && cell0Lower.contains('kupon')) ||
+        (cell1Lower.contains('no') && cell1Lower.contains('kupon')) ||
+        (cell1Lower.contains('nomor') && cell1Lower.contains('kupon'));
+
+    if (isHeaderRow) {
       print('Debug - Skipping header row: "$cell0", "$cell1"');
       return null;
     }
 
-    // Skip jika baris tidak memiliki data minimal (jenisKupon dan noKupon)
-    if (cell0.trim().isEmpty || cell1.trim().isEmpty) {
+    // Skip jika baris tidak memiliki data minimal (noKupon)
+    if (cell1.trim().isEmpty) {
       print(
-        'Debug - Skipping incomplete row: jenisKupon="$cell0", noKupon="$cell1"',
+        'Debug - Skipping incomplete row: noKupon="$cell1"',
       );
       return null;
     }
@@ -363,12 +422,13 @@ class ExcelDatasource {
       return null;
     }
 
-    final jenisKupon = cell0;
-    print('Debug - Jenis Kupon: "$jenisKupon"'); // Debug line
+    // Jenis Kupon - NULLABLE (boleh kosong)
+    final jenisKupon = cell0.isNotEmpty ? cell0 : 'DUKUNGAN';
+    print('Debug - Jenis Kupon: "$jenisKupon"');
 
-    // No Kupon - DIPERBAIKI untuk handle berbagai format
+    // No Kupon - REQUIRED
     final noKuponStr = _getCellString(row, 1);
-    print('Debug - No Kupon raw: "$noKuponStr"'); // Debug line
+    print('Debug - No Kupon raw: "$noKuponStr"');
 
     if (noKuponStr.isEmpty) {
       throw Exception('No Kupon tidak boleh kosong');
@@ -385,7 +445,7 @@ class ExcelDatasource {
 
     // Bulan (romawi) - DIPERBAIKI
     final bulanStr = _getCellString(row, 2).toUpperCase();
-    print('Debug - Bulan raw: "$bulanStr"'); // Debug line
+    print('Debug - Bulan raw: "$bulanStr"');
 
     final bulanClean = RegExp(r'[IVXLCDM]+').stringMatch(bulanStr) ?? '';
     final bulan = _parseRomanNumeral(bulanClean);
@@ -401,75 +461,68 @@ class ExcelDatasource {
       throw Exception('Tahun tidak valid. Ditemukan: "$tahunStr"');
     }
 
+    // Jenis Ranmor - NULLABLE (boleh kosong)
     final jenisRanmor = _getCellString(row, 4);
-    final satkerRaw = _getCellString(row, 5);
+    print('Debug - Jenis Ranmor: "${jenisRanmor.isEmpty ? "NULL" : jenisRanmor}"');
 
-    // Untuk DUKUNGAN dengan satker kosong, otomatis set sebagai CADANGAN
-    final isDukunganCheck = jenisKupon.toLowerCase().contains('dukungan');
+    // Satker - NORMALIZED (selalu konsisten huruf besar, tanpa spasi)
+    final satkerRaw = _getCellString(row, 5).trim();
     String satker;
-    if (isDukunganCheck &&
-        (satkerRaw.isEmpty ||
-            satkerRaw.toLowerCase() == 'null' ||
-            satkerRaw == '-')) {
+
+    if (satkerRaw.isEmpty ||
+        satkerRaw.toLowerCase() == 'null' ||
+        satkerRaw == '-') {
       satker = 'CADANGAN';
-      print(
-        'Debug - Auto-assigned CADANGAN for empty satker in DUKUNGAN kupon',
-      );
+      print('Debug - Satker kosong/null, diubah jadi: "CADANGAN"');
     } else {
-      satker = satkerRaw;
+      satker = satkerRaw.toUpperCase();
     }
 
-    // No Pol - Handle untuk kupon DUKUNGAN yang bisa kosong
+    // No Pol - NULLABLE (boleh kosong)
     final noPolStr = _getCellString(row, 6);
-    print('Debug - No Pol raw: "$noPolStr"'); // Debug line
+    print('Debug - No Pol raw: "${noPolStr.isEmpty ? "NULL" : noPolStr}"');
 
-    // Untuk kupon DUKUNGAN, No Pol bisa kosong
-    final isDukungan = jenisKupon.toLowerCase().contains('dukungan');
     String? noPol;
-
-    if (noPolStr.isEmpty) {
-      if (!isDukungan) {
-        throw Exception('No Pol tidak boleh kosong untuk kupon RANJEN');
-      }
-      // Untuk DUKUNGAN, noPol bisa null
-      noPol = null;
-    } else {
+    if (noPolStr.isNotEmpty) {
       // Extract angka dari No Pol
       final noPolMatch = RegExp(r'\d+').firstMatch(noPolStr);
-      if (noPolMatch == null) {
-        throw Exception(
-          'No Pol harus mengandung angka. Ditemukan: "$noPolStr"',
-        );
+      if (noPolMatch != null) {
+        noPol = noPolMatch.group(0)!;
       }
-      noPol = noPolMatch.group(0)!;
     }
 
-    final kodeNopol = _getCellString(row, 7); // Ini kolom H (Kode)
+    // Kode Nopol - NULLABLE (boleh kosong)
+    final kodeNopol = _getCellString(row, 7);
+    print('Debug - Kode Nopol: "${kodeNopol.isEmpty ? "NULL (akan gunakan default)" : kodeNopol}"');
+
     final jenisBBM = _getCellString(row, 8);
     final kuantumStr = _getCellString(row, 9);
     final kuantum = double.tryParse(kuantumStr) ?? 0.0;
 
-    print('Debug - Jenis BBM: "$jenisBBM"'); // Debug line
-    print('Debug - Kuantum: "$kuantumStr" -> $kuantum'); // Debug line
+    print('Debug - Jenis BBM: "$jenisBBM"');
+    print('Debug - Kuantum: "$kuantumStr" -> $kuantum');
 
-    // Validasi jenis BBM dengan lebih fleksibel
-    final jenisBBMLower = jenisBBM.toLowerCase();
-    if (!jenisBBMLower.contains('pertamax') &&
-        !jenisBBMLower.contains('dex') &&
-        !jenisBBMLower.contains('solar')) {
-      throw Exception(
-        'Jenis BBM harus mengandung kata Pertamax, Dex, atau Solar. Ditemukan: "$jenisBBM"',
-      );
+    // Validasi jenis BBM dengan lebih fleksibel (nullable)
+    if (jenisBBM.isNotEmpty) {
+      final jenisBBMLower = jenisBBM.toLowerCase();
+      if (!jenisBBMLower.contains('pertamax') &&
+          !jenisBBMLower.contains('dex') &&
+          !jenisBBMLower.contains('dexlite') &&
+          !jenisBBMLower.contains('solar')) {
+        throw Exception(
+          'Jenis BBM harus mengandung kata Pertamax, Dex, Dexlite, atau Solar. Ditemukan: "$jenisBBM"',
+        );
+      }
     }
 
-    // Validasi data lengkap - berbeda untuk RANJEN dan DUKUNGAN
+    // Validasi data lengkap
     print('Debug - Validasi Detail:');
     print('  noKupon: "$noKupon" (kosong: ${noKupon.isEmpty})');
     print('  bulan: $bulan (valid: ${bulan >= 1 && bulan <= 12})');
     print('  tahun: $tahun (valid: ${tahun >= 2000})');
     print('  satker: "$satker" (kosong: ${satker.isEmpty})');
-    print('  jenisBBM: "$jenisBBM" (kosong: ${jenisBBM.isEmpty})');
     print('  kuantum: $kuantum (valid: ${kuantum > 0})');
+    // jenisRanmor, noPol, kodeNopol are allowed to be empty/null
 
     final basicValidation =
         noKupon.isEmpty ||
@@ -477,7 +530,6 @@ class ExcelDatasource {
         bulan > 12 ||
         tahun < 2000 ||
         satker.isEmpty ||
-        jenisBBM.isEmpty ||
         kuantum <= 0;
 
     if (basicValidation) {
@@ -487,86 +539,77 @@ class ExcelDatasource {
         errorDetails += 'bulan tidak valid ($bulan), ';
       if (tahun < 2000) errorDetails += 'tahun tidak valid ($tahun), ';
       if (satker.isEmpty) errorDetails += 'satker kosong, ';
-      if (jenisBBM.isEmpty) errorDetails += 'jenisBBM kosong, ';
       if (kuantum <= 0) errorDetails += 'kuantum tidak valid ($kuantum), ';
 
       throw Exception(errorDetails.replaceAll(RegExp(r', $'), ''));
     }
 
-    // Validasi khusus untuk RANJEN - memerlukan data kendaraan lengkap
-    if (!isDukungan) {
-      if (jenisRanmor.isEmpty || noPol == null) {
-        throw Exception('Data kendaraan tidak lengkap untuk kupon RANJEN');
-      }
-    }
+    // Jenis Kupon untuk penentuan tipe
+    final isDukungan = jenisKupon.toLowerCase().contains('dukungan');
 
     // Untuk DUKUNGAN, jenisRanmor boleh kosong, akan diisi default
-    final finalJenisRanmor = isDukungan && jenisRanmor.isEmpty
+    final finalJenisRanmor = (isDukungan && jenisRanmor.isEmpty)
         ? 'N/A (DUKUNGAN)'
-        : jenisRanmor;
+        : jenisRanmor.isEmpty ? 'TIDAK DIISI' : jenisRanmor;
 
     final tanggalMulai = DateTime(tahun, bulan, 1);
-    final tanggalSampai = DateTime(
-      tahun,
-      bulan + 1,
-      0,
-    ); // Akhir bulan yang sama
+    final tanggalSampai = DateTime(tahun, bulan + 1, 0);
 
     // Gunakan kode yang ada di Excel atau default
-    final finalKodeNopol = kodeNopol.isNotEmpty
-        ? kodeNopol
-        : DEFAULT_KODE_NOPOL;
+    final finalKodeNopol = kodeNopol.isNotEmpty ? kodeNopol : DEFAULT_KODE_NOPOL;
 
     // Get satkerId from database
     final db = await _databaseDatasource.database;
-    final satkerResult = await db.query(
-      'dim_satker',
-      where: 'nama_satker = ?',
-      whereArgs: [satker],
-      limit: 1,
-    );
+  final satkerResult = await db.query(
+    'dim_satker',
+    where: 'UPPER(TRIM(nama_satker)) = ?',
+    whereArgs: [satker.trim().toUpperCase()],
+    limit: 1,
+  );
+
 
     int satkerId;
     if (satkerResult.isNotEmpty) {
       satkerId = satkerResult.first['satker_id'] as int;
     } else {
       // Jika satker tidak ditemukan, buat entry baru
-      // Terutama untuk CADANGAN DUKUNGAN
       satkerId = await db.insert('dim_satker', {'nama_satker': satker});
       print('Created new satker: $satker with ID: $satkerId');
     }
 
-    // Hanya buat KendaraanModel untuk kupon RANJEN
+    // Buat KendaraanModel hanya jika ada data no pol
     KendaraanModel? kendaraan;
-    if (!isDukungan && noPol != null) {
+    if (noPol != null && noPol.isNotEmpty) {
       print(
-        'Debug - Creating KendaraanModel for RANJEN with noPolNomor: "$noPol"',
+        'Debug - Creating KendaraanModel with noPolNomor: "$noPol"',
       );
       kendaraan = KendaraanModel(
         kendaraanId: 0,
         satkerId: satkerId,
         jenisRanmor: finalJenisRanmor,
         noPolKode: finalKodeNopol,
-        noPolNomor: noPol, // Gunakan angka yang sudah diextract
+        noPolNomor: noPol,
         statusAktif: 1,
         createdAt: DateTime.now().toIso8601String(),
       );
     } else {
-      print('Debug - Skipping KendaraanModel creation for DUKUNGAN');
+      print('Debug - Skipping KendaraanModel creation (no noPol)');
     }
 
     // Tentukan jenis BBM ID
     int jenisBbmId = 1; // Default Pertamax
-    if (jenisBBM.toLowerCase().contains('dex')) {
-      jenisBbmId = 2;
+    if (jenisBBM.isNotEmpty) {
+      final jenisBBMLower = jenisBBM.toLowerCase();
+      if (jenisBBMLower.contains('pertamina dex') || jenisBBMLower.contains('dexlite') || jenisBBMLower.contains('dex')) {
+        jenisBbmId = 2;
+      }
     }
+        print('DEBUG - jenisBbmId to insert: value=$jenisBbmId, type=${jenisBbmId.runtimeType}, from Jenis BBM="$jenisBBM"');
 
     final kupon = KuponModel(
       kuponId: 0,
       nomorKupon: noKupon,
-      kendaraanId: isDukungan
-          ? null
-          : 0, // null untuk DUKUNGAN, 0 untuk RANJEN (akan di-set nanti)
+      kendaraanId: (noPol != null && noPol.isNotEmpty) ? 0 : null,
       jenisBbmId: jenisBbmId,
       jenisKuponId: jenisKupon.toLowerCase().contains('ranjen') ? 1 : 2,
       bulanTerbit: bulan,
@@ -575,7 +618,7 @@ class ExcelDatasource {
       tanggalSampai: tanggalSampai.toIso8601String(),
       kuotaAwal: kuantum,
       kuotaSisa: kuantum,
-      satkerId: satkerId, // Gunakan satkerId yang didapat dari database
+      satkerId: satkerId,
       namaSatker: satker,
       status: 'Aktif',
       createdAt: DateTime.now().toIso8601String(),
@@ -585,7 +628,5 @@ class ExcelDatasource {
 
     return (kupon, kendaraan);
   }
-
-  /// Handles duplicate replacement by removing existing kupon with same criteria
-  /// Returns true if replacement happened, false if no duplicates found
 }
+      
