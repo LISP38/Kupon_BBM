@@ -24,12 +24,12 @@ class ImportPreviewPage extends StatelessWidget {
   final VoidCallback onCancel;
 
   const ImportPreviewPage({
-    Key? key,
+    super.key,
     required this.parseResult,
     required this.fileName,
     required this.onConfirmImport,
     required this.onCancel,
-  }) : super(key: key);
+  });
 
   List<ImportPreviewItem> _buildPreviewItems() {
     final items = <ImportPreviewItem>[];

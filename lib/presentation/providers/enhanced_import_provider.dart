@@ -138,7 +138,7 @@ class EnhancedImportProvider with ChangeNotifier {
       notifyListeners();
     } catch (e) {
       print('Error deleting session: $e');
-      throw e;
+      rethrow;
     }
   }
 

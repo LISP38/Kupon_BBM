@@ -18,7 +18,7 @@ class DatabaseDatasource {
     }
     for (final k in kupons) {
       // Satker null/empty diisi 'CADANGAN' (huruf besar)
-      final namaSatker = (k.namaSatker == null || k.namaSatker.trim().isEmpty)
+      final namaSatker = (k.namaSatker.trim().isEmpty)
           ? 'CADANGAN'
           : k.namaSatker.trim().toUpperCase();
       final namaSatkerLower = namaSatker.toLowerCase();
@@ -37,11 +37,30 @@ class DatabaseDatasource {
             'nama_satker': namaSatker,
           });
           satkerMap[namaSatkerLower] = satkerId;
-          print('INFO: Satker baru ditambahkan: "${namaSatker}" dengan id $satkerId');
+          print('INFO: Satker baru ditambahkan: "$namaSatker" dengan id $satkerId');
         }
       }
+
       // kendaraan_id: null jika jenisKuponId == 2 (DUKUNGAN)
-      final kendaraanId = (k.jenisKuponId == 2) ? null : k.kendaraanId;
+      int? kendaraanId;
+      if (k.jenisKuponId == 2) {
+        kendaraanId = null;
+      } else if (k.kendaraanId != null) {
+        // Check if kendaraan exists in dim_kendaraan
+        final kendaraanRow = await db.query(
+          'dim_kendaraan',
+          where: 'kendaraan_id = ?',
+          whereArgs: [k.kendaraanId],
+          limit: 1,
+        );
+        if (kendaraanRow.isNotEmpty) {
+          kendaraanId = k.kendaraanId;
+        } else {
+          // If not found, do not insert here (should already be handled in _parseRow)
+          kendaraanId = null;
+        }
+      }
+
       final jenisBbmId = k.jenisBbmId;
       final jenisKuponId = k.jenisKuponId;
       batch.insert('fact_kupon', {

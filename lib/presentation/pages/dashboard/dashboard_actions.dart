@@ -7,7 +7,7 @@ import '../transaksi/show_transaksi_bbm_dialog.dart';
 import '../transaksi/deleted_transaksi_page.dart';
 
 class DashboardActions extends StatelessWidget {
-  const DashboardActions({Key? key}) : super(key: key);
+  const DashboardActions({super.key});
 
   @override
   Widget build(BuildContext context) {

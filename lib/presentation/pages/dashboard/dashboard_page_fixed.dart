@@ -604,7 +604,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             // Tables Section - Transaction and Kupon
-            Container(
+            SizedBox(
               height: 400,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -673,7 +673,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             // Minus Table
-            Container(
+            SizedBox(
               height: 300,
               child: Card(
                 child: Column(

@@ -77,7 +77,7 @@ class _ImportHistoryPageState extends State<ImportHistoryPage> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Text('${session.importType.toUpperCase()}'),
+                          Text(session.importType.toUpperCase()),
                           if (session.expectedPeriod != null) ...[
                             const Text(' • '),
                             Text('Periode: ${session.expectedPeriod}'),

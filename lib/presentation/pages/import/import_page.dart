@@ -63,7 +63,7 @@ class _ImportPageState extends State<ImportPage> {
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     decoration: const InputDecoration(labelText: 'Bulan'),
-                    value: _expectedMonth,
+                    initialValue: _expectedMonth,
                     items: List.generate(12, (index) => index + 1)
                         .map(
                           (month) => DropdownMenuItem(

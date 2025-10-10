@@ -10,12 +10,12 @@ class TransaksiBBMForm extends StatefulWidget {
   final TransaksiEntity? initialData;
 
   const TransaksiBBMForm({
-    Key? key,
+    super.key,
     required this.jenisBbmId,
     required this.jenisBbmName,
     this.editMode = false,
     this.initialData,
-  }) : super(key: key);
+  });
 
   @override
   State<TransaksiBBMForm> createState() => _TransaksiBBMFormState();

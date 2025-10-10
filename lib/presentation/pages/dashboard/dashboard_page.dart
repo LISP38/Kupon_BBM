@@ -508,7 +508,7 @@ class _DashboardPageState extends State<DashboardPage>
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedSatker,
+                    initialValue: _selectedSatker,
                     decoration: const InputDecoration(
                       labelText: 'Satker',
                       border: OutlineInputBorder(),
@@ -523,7 +523,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _selectedJenisBBM,
+                    initialValue: _selectedJenisBBM,
                     decoration: const InputDecoration(
                       labelText: 'Jenis BBM',
                       border: OutlineInputBorder(),
@@ -573,7 +573,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _selectedBulan,
+                    initialValue: _selectedBulan,
                     decoration: const InputDecoration(
                       labelText: 'Bulan',
                       border: OutlineInputBorder(),
@@ -593,7 +593,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _selectedTahun,
+                    initialValue: _selectedTahun,
                     decoration: const InputDecoration(
                       labelText: 'Tahun',
                       border: OutlineInputBorder(),
@@ -939,7 +939,7 @@ class _DashboardPageState extends State<DashboardPage>
                 SizedBox(
                   width: 200,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedJenisBBM,
+                    initialValue: _selectedJenisBBM,
                     items: _jenisBBMMap.entries
                         .map(
                           (e) => DropdownMenuItem(
@@ -961,7 +961,7 @@ class _DashboardPageState extends State<DashboardPage>
                 SizedBox(
                   width: 200,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedJenisKupon,
+                    initialValue: _selectedJenisKupon,
                     items: _jenisKuponMap.entries
                         .map(
                           (e) => DropdownMenuItem(
@@ -1054,7 +1054,7 @@ class _DashboardPageState extends State<DashboardPage>
                 SizedBox(
                   width: 150,
                   child: DropdownButtonFormField<int>(
-                    value: _selectedBulan,
+                    initialValue: _selectedBulan,
                     items: _bulanList
                         .map(
                           (e) => DropdownMenuItem(
@@ -1079,7 +1079,7 @@ class _DashboardPageState extends State<DashboardPage>
                 SizedBox(
                   width: 150,
                   child: DropdownButtonFormField<int>(
-                    value: _selectedTahun,
+                    initialValue: _selectedTahun,
                     items: _tahunList
                         .map(
                           (e) => DropdownMenuItem(

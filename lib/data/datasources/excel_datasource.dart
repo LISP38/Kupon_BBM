@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:excel/excel.dart';
 import 'package:kupon_bbm_app/data/datasources/database_datasource.dart';
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
@@ -90,7 +91,7 @@ class ExcelDatasource {
       );
     }
 
-    late final bytes;
+    late final Uint8List bytes;
     late final Excel excel;
 
     try {
@@ -323,7 +324,7 @@ class ExcelDatasource {
         k.kuotaSisa.toString(),
         k.satkerId.toString(),
         k.namaSatker,
-        k.status ?? '',
+        k.status,
       ];
 
       // Gabungkan kolom Kendaraan (jika ada)
@@ -535,8 +536,9 @@ class ExcelDatasource {
     if (basicValidation) {
       String errorDetails = 'Data dasar tidak valid: ';
       if (noKupon.isEmpty) errorDetails += 'noKupon kosong, ';
-      if (bulan < 1 || bulan > 12)
+      if (bulan < 1 || bulan > 12) {
         errorDetails += 'bulan tidak valid ($bulan), ';
+      }
       if (tahun < 2000) errorDetails += 'tahun tidak valid ($tahun), ';
       if (satker.isEmpty) errorDetails += 'satker kosong, ';
       if (kuantum <= 0) errorDetails += 'kuantum tidak valid ($kuantum), ';
@@ -577,23 +579,72 @@ class ExcelDatasource {
       print('Created new satker: $satker with ID: $satkerId');
     }
 
-    // Buat KendaraanModel hanya jika ada data no pol
+    // Cari kendaraan di dim_kendaraan, jika belum ada, insert dan buat KendaraanModel
     KendaraanModel? kendaraan;
-    if (noPol != null && noPol.isNotEmpty) {
-      print(
-        'Debug - Creating KendaraanModel with noPolNomor: "$noPol"',
+    int? kendaraanId;
+    if (!isDukungan && noPol != null && noPol.isNotEmpty) {
+      final kendaraanRow = await db.query(
+        'dim_kendaraan',
+        where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+        whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
+        limit: 1,
       );
-      kendaraan = KendaraanModel(
-        kendaraanId: 0,
-        satkerId: satkerId,
-        jenisRanmor: finalJenisRanmor,
-        noPolKode: finalKodeNopol,
-        noPolNomor: noPol,
-        statusAktif: 1,
-        createdAt: DateTime.now().toIso8601String(),
+      if (kendaraanRow.isNotEmpty) {
+        kendaraanId = kendaraanRow.first['kendaraan_id'] as int;
+        kendaraan = null; // Sudah ada, tidak perlu buat baru
+      } else {
+        try {
+          kendaraanId = await db.rawInsert(
+            'INSERT OR IGNORE INTO dim_kendaraan (satker_id, jenis_ranmor, no_pol_kode, no_pol_nomor, status_aktif, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            [satkerId, finalJenisRanmor, finalKodeNopol, noPol, 1, DateTime.now().toIso8601String()],
+          );
+        } catch (e) {
+          // Jika gagal karena UNIQUE constraint, fallback ke select
+          final fallbackCheck = await db.query(
+            'dim_kendaraan',
+            where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+            whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
+            limit: 1,
+          );
+          if (fallbackCheck.isNotEmpty) {
+            kendaraanId = fallbackCheck.first['kendaraan_id'] as int;
+            kendaraan = null;
+          } else {
+            rethrow;
+          }
+        }
+        // Jika kendaraanId tetap null, cari lagi (harusnya tidak terjadi)
+        if (kendaraanId == 0 || kendaraanId == null) {
+          final finalCheck = await db.query(
+            'dim_kendaraan',
+            where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+            whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
+            limit: 1,
+          );
+          if (finalCheck.isNotEmpty) {
+            kendaraanId = finalCheck.first['kendaraan_id'] as int;
+            kendaraan = null;
+          } else {
+            throw Exception('Gagal menyisipkan kendaraan dan tidak ditemukan di database.');
+          }
+        } else {
+          kendaraan = KendaraanModel(
+            kendaraanId: kendaraanId,
+            satkerId: satkerId,
+            jenisRanmor: finalJenisRanmor,
+            noPolKode: finalKodeNopol,
+            noPolNomor: noPol,
+            statusAktif: 1,
+            createdAt: DateTime.now().toIso8601String(),
+          );
+        }
+      }
+    // Validasi kendaraanId untuk kupon non-dukungan
+    if (!isDukungan && (kendaraanId == null || kendaraanId == 0)) {
+      throw Exception(
+        'Kupon Non-Dukungan memerlukan data Kendaraan (No Pol & Jenis Ranmor) yang valid, namun gagal dibuat/ditemukan.',
       );
-    } else {
-      print('Debug - Skipping KendaraanModel creation (no noPol)');
+    }
     }
 
     // Tentukan jenis BBM ID
@@ -609,7 +660,7 @@ class ExcelDatasource {
     final kupon = KuponModel(
       kuponId: 0,
       nomorKupon: noKupon,
-      kendaraanId: (noPol != null && noPol.isNotEmpty) ? 0 : null,
+      kendaraanId: isDukungan ? null : kendaraanId,
       jenisBbmId: jenisBbmId,
       jenisKuponId: jenisKupon.toLowerCase().contains('ranjen') ? 1 : 2,
       bulanTerbit: bulan,

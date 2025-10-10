@@ -564,7 +564,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             // Transaction Table Section
-            Container(
+            SizedBox(
               height: 400,
               child: Card(
                 child: Column(
@@ -603,7 +603,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             // Minus Table
-            Container(
+            SizedBox(
               height: 300,
               child: Card(
                 child: Column(

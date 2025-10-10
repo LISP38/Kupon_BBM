@@ -30,7 +30,7 @@ class _TransactionPageState extends State<TransactionPage> {
   DateTime? _filterTanggalMulai;
   DateTime? _filterTanggalSelesai;
   int? _filterSatkerId;
-  List<Map<String, dynamic>> _satkerList = [
+  final List<Map<String, dynamic>> _satkerList = [
     {'satker_id': 0, 'nama_satker': 'Cadangan'},
     // TODO: Replace with actual satker list from provider/database if available
     {'satker_id': 1, 'nama_satker': 'KAPOLDA'},
@@ -456,7 +456,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       labelText: 'Bulan',
                       border: OutlineInputBorder(),
                     ),
-                    value: Provider.of<TransaksiProvider>(context).filterBulan,
+                    initialValue: Provider.of<TransaksiProvider>(context).filterBulan,
                     items: [
                       for (int i = 1; i <= 12; i++)
                         DropdownMenuItem(
@@ -480,7 +480,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       labelText: 'Tahun',
                       border: OutlineInputBorder(),
                     ),
-                    value: Provider.of<TransaksiProvider>(context).filterTahun,
+                    initialValue: Provider.of<TransaksiProvider>(context).filterTahun,
                     items: [2024, 2025]
                         .map(
                           (e) => DropdownMenuItem(
@@ -505,7 +505,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       labelText: 'Satker',
                       border: OutlineInputBorder(),
                     ),
-                    value: _filterSatkerId,
+                    initialValue: _filterSatkerId,
                     items: _satkerList
                         .map((s) => DropdownMenuItem<int>(
                               value: s['satker_id'] as int,
@@ -754,29 +754,29 @@ class _TransactionPageState extends State<TransactionPage> {
     final List<KuponEntity> kuponList = dashboardProvider.kuponList
         .where((k) => k.jenisBbmId == jenisBbm)
         .toList();
-    final Map<int, String> _jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
+    final Map<int, String> jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
     final List<String> kuponOptions = kuponList
         .map(
           (k) =>
-              '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/${_jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId} (${k.kuotaSisa.toStringAsFixed(0)} L)',
+              '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/${jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId} (${k.kuotaSisa.toStringAsFixed(0)} L)',
         )
         .toList();
-    final _formKey = GlobalKey<FormState>();
-    final _tanggalController = TextEditingController();
-    String? _nomorKupon;
-    double? _jumlahLiter;
+    final formKey = GlobalKey<FormState>();
+    final tanggalController = TextEditingController();
+    String? nomorKupon;
+    double? jumlahLiter;
     await showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           title: Text('Tambah Transaksi'),
           content: Form(
-            key: _formKey,
+            key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextFormField(
-                  controller: _tanggalController,
+                  controller: tanggalController,
                   decoration: const InputDecoration(
                     labelText: 'Tanggal',
                     suffixIcon: Icon(Icons.calendar_today),
@@ -793,7 +793,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       lastDate: DateTime(2030),
                     );
                     if (pickedDate != null) {
-                      _tanggalController.text = DateFormat(
+                      tanggalController.text = DateFormat(
                         'yyyy-MM-dd',
                       ).format(pickedDate);
                     }
@@ -828,7 +828,7 @@ class _TransactionPageState extends State<TransactionPage> {
                     return filtered;
                   },
                   onSelected: (value) {
-                    _nomorKupon = value;
+                    nomorKupon = value;
                   },
                   fieldViewBuilder:
                       (context, controller, focusNode, onFieldSubmitted) {
@@ -846,7 +846,7 @@ class _TransactionPageState extends State<TransactionPage> {
                   decoration: InputDecoration(labelText: 'Jumlah Liter'),
                   keyboardType: TextInputType.number,
                   onChanged: (value) {
-                    _jumlahLiter = double.tryParse(value);
+                    jumlahLiter = double.tryParse(value);
                   },
                   validator: (value) => value == null || value.isEmpty
                       ? 'Masukkan jumlah liter'
@@ -862,14 +862,14 @@ class _TransactionPageState extends State<TransactionPage> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (!_formKey.currentState!.validate()) return;
+                if (!formKey.currentState!.validate()) return;
                 KuponEntity? kupon;
                 for (final k in kuponList) {
                   final jenisKuponNama =
-                      _jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId;
+                      jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId;
                   final formatLengkap =
-                      '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/${jenisKuponNama} (${k.kuotaSisa.toStringAsFixed(0)} L)';
-                  if (formatLengkap == _nomorKupon) {
+                      '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/$jenisKuponNama (${k.kuotaSisa.toStringAsFixed(0)} L)';
+                  if (formatLengkap == nomorKupon) {
                     kupon = k;
                     break;
                   }
@@ -880,7 +880,7 @@ class _TransactionPageState extends State<TransactionPage> {
                   );
                   return;
                 }
-                if (kupon.kuotaSisa < (_jumlahLiter ?? 0)) {
+                if (kupon.kuotaSisa < (jumlahLiter ?? 0)) {
                   final lanjut = await showDialog<bool>(
                     context: context,
                     builder: (context) {
@@ -912,8 +912,8 @@ class _TransactionPageState extends State<TransactionPage> {
                   nomorKupon: kupon.nomorKupon,
                   namaSatker: kupon.namaSatker,
                   jenisBbmId: jenisBbm,
-                  tanggalTransaksi: _tanggalController.text,
-                  jumlahLiter: _jumlahLiter ?? 0,
+                  tanggalTransaksi: tanggalController.text,
+                  jumlahLiter: jumlahLiter ?? 0,
                   createdAt: DateTime.now().toIso8601String(),
                   updatedAt: DateTime.now().toIso8601String(),
                   isDeleted: 0,
@@ -1141,9 +1141,9 @@ class _TransactionPageState extends State<TransactionPage> {
       context,
       listen: false,
     );
-    final _formKey = GlobalKey<FormState>();
-    final _tanggalController = TextEditingController(text: t.tanggalTransaksi);
-    final _jumlahController = TextEditingController(
+    final formKey = GlobalKey<FormState>();
+    final tanggalController = TextEditingController(text: t.tanggalTransaksi);
+    final jumlahController = TextEditingController(
       text: t.jumlahLiter.toString(),
     );
     await showDialog(
@@ -1152,12 +1152,12 @@ class _TransactionPageState extends State<TransactionPage> {
         return AlertDialog(
           title: const Text('Edit Transaksi'),
           content: Form(
-            key: _formKey,
+            key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextFormField(
-                  controller: _tanggalController,
+                  controller: tanggalController,
                   decoration: const InputDecoration(
                     labelText: 'Tanggal',
                     suffixIcon: Icon(Icons.calendar_today),
@@ -1169,20 +1169,20 @@ class _TransactionPageState extends State<TransactionPage> {
                     DateTime? pickedDate = await showDatePicker(
                       context: context,
                       initialDate:
-                          DateTime.tryParse(_tanggalController.text) ??
+                          DateTime.tryParse(tanggalController.text) ??
                           DateTime.now(),
                       firstDate: DateTime(2000),
                       lastDate: DateTime(2100),
                     );
                     if (pickedDate != null) {
-                      _tanggalController.text = DateFormat(
+                      tanggalController.text = DateFormat(
                         'yyyy-MM-dd',
                       ).format(pickedDate);
                     }
                   },
                 ),
                 TextFormField(
-                  controller: _jumlahController,
+                  controller: jumlahController,
                   decoration: const InputDecoration(labelText: 'Jumlah Liter'),
                   keyboardType: TextInputType.number,
                   validator: (v) =>
@@ -1198,7 +1198,7 @@ class _TransactionPageState extends State<TransactionPage> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (_formKey.currentState?.validate() ?? false) {
+                if (formKey.currentState?.validate() ?? false) {
                   final dashboardProvider = Provider.of<DashboardProvider>(
                     context,
                     listen: false,
@@ -1209,9 +1209,9 @@ class _TransactionPageState extends State<TransactionPage> {
                     nomorKupon: t.nomorKupon,
                     namaSatker: t.namaSatker,
                     jenisBbmId: t.jenisBbmId, // Keep original BBM type
-                    tanggalTransaksi: _tanggalController.text,
+                    tanggalTransaksi: tanggalController.text,
                     jumlahLiter:
-                        double.tryParse(_jumlahController.text) ??
+                        double.tryParse(jumlahController.text) ??
                         t.jumlahLiter,
                     createdAt: t.createdAt,
                     updatedAt: DateTime.now().toIso8601String(),
