@@ -4,30 +4,37 @@ import 'package:excel/excel.dart';
 import 'package:kupon_bbm_app/data/datasources/database_datasource.dart';
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
 import 'package:kupon_bbm_app/data/models/kendaraan_model.dart';
-import 'package:kupon_bbm_app/data/validators/kupon_validator.dart';
+// import 'package:kupon_bbm_app/data/validators/kupon_validator.dart'; // Validator lama tidak digunakan lagi
+
+// class KuponValidator { // Tidak digunakan lagi dalam parseExcelFile
+//   ...
+// }
 
 class ExcelParseResult {
-  final List<KuponModel> kupons;
-  final List<KendaraanModel> newKendaraans;
-  final List<KuponModel> duplicateKupons;
-  final List<KendaraanModel> duplicateKendaraans;
-  final List<String> validationMessages;
+  final List<KuponModel> kupons; // Kupons baru dari parsing (sudah dipisahkan dari duplikat database)
+  final List<KendaraanModel> newKendaraans; // Kendaraan baru dari kupons
+  final List<KuponModel>
+      duplicateKupons; // Kupons yang duplikat terhadap data LAMA di database
+  final List<KendaraanModel> duplicateKendaraans; // Kendaraan yang duplikat terhadap data LAMA di database
+  final List<String> validationMessages; // Pesan-pesan validasi
 
   ExcelParseResult({
     required this.kupons,
     required this.newKendaraans,
-    this.duplicateKupons = const [],
-    this.duplicateKendaraans = const [],
+    required this.duplicateKupons,
+    required this.duplicateKendaraans,
     required this.validationMessages,
   });
 }
 
 class ExcelDatasource {
-  final KuponValidator _kuponValidator;
+  // final KuponValidator _kuponValidator; // Tidak digunakan lagi
   final DatabaseDatasource _databaseDatasource;
   static const String DEFAULT_KODE_NOPOL = 'VIII';
 
-  ExcelDatasource(this._kuponValidator, this._databaseDatasource);
+  ExcelDatasource(
+      // this._kuponValidator, // Tidak digunakan lagi
+      this._databaseDatasource);
 
   // Helper untuk konversi angka romawi ke integer
   int? _parseRomanNumeral(String roman) {
@@ -48,6 +55,43 @@ class ExcelDatasource {
 
     return romanValues[roman.trim().toUpperCase()];
   }
+
+  // Fungsi untuk membuat kunci unik berdasarkan kombinasi field (untuk duplikat terhadap database lama)
+  // Kombinasi ini mencerminkan kebijakan bahwa entitas kupon di database
+  // ditentukan oleh nomor, jenis, satker, bulan, dan tahun terbit.
+  String _generateUniqueKey(KuponModel kupon) {
+    return "${kupon.nomorKupon}_${kupon.jenisKuponId}_${kupon.satkerId}_${kupon.bulanTerbit}_${kupon.tahunTerbit}";
+  }
+
+  // Fungsi untuk membuat kunci unik berdasarkan SELURUH field KuponModel (untuk duplikat internal dalam file)
+  // Ini digunakan untuk mendeteksi entri yang benar-benar identik dalam satu file.
+  // Kita masukkan semua field yang relevan dari KuponModel, termasuk yang bisa berbeda seperti jenisBbmId, kuotaAwal.
+  String _generateFullUniqueKey(KuponModel kupon) {
+    // Gabungkan semua field penting dari KuponModel
+    // Perhatikan bahwa kuponId bisa 0 untuk entri baru, jadi mungkin tidak termasuk
+    // createdAt dan updatedAt bisa berbeda saat parsing, jadi mungkin tidak termasuk
+    // isDeleted diasumsikan 0
+    // Gunakan field-field yang merepresentasikan data kupon itu sendiri
+    // Urutan dan isi harus konsisten agar entri identik menghasilkan string yang sama
+    return [
+      kupon.nomorKupon,
+      kupon.kendaraanId?.toString() ?? 'null', // Jika null, gunakan string 'null'
+      kupon.jenisBbmId.toString(),
+      kupon.jenisKuponId.toString(),
+      kupon.bulanTerbit.toString(),
+      kupon.tahunTerbit.toString(),
+      kupon.tanggalMulai,
+      kupon.tanggalSampai,
+      kupon.kuotaAwal.toString(),
+      kupon.kuotaSisa.toString(),
+      kupon.satkerId.toString(),
+      kupon.namaSatker,
+      kupon.status,
+      // createdAt dan updatedAt tidak termasuk karena bisa berbeda setiap insert
+      // isDeleted diasumsikan 0 untuk data baru
+    ].join('|');
+  }
+
 
   Future<ExcelParseResult> parseExcelFile(
     String filePath,
@@ -193,6 +237,12 @@ class ExcelDatasource {
     // Langsung proses semua baris sebagai data (tanpa header)
     int processedRows = 0;
 
+    // Buat set kunci unik dari existingKupons untuk pencarian cepat
+    final existingUniqueKeys = <String>{};
+    for (final k in existingKupons) {
+      existingUniqueKeys.add(_generateUniqueKey(k));
+    }
+
     for (int i = 0; i < sheet.rows.length; i++) {
       final row = sheet.rows[i];
       final rowNumber = i + 1;
@@ -206,82 +256,20 @@ class ExcelDatasource {
             'DEBUG - Row $rowNumber -> Kupon: ${kupon.nomorKupon} (${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"})',
           );
 
-          // SOLUSI: Improved validation with better error categorization
-          final noPol = kendaraan != null
-              ? '${kendaraan.noPolNomor}-${kendaraan.noPolKode}'
-              : 'N/A (DUKUNGAN)';
+          // Buat kunci unik untuk kupon yang sedang diproses (untuk cek duplikat terhadap database lama)
+          final uniqueKey = _generateUniqueKey(kupon);
 
-          final validationResult = _kuponValidator.validateKupon(
-            existingKupons,
-            kupon,
-            noPol,
-            currentBatchKupons:
-                kupons, // Kupon yang sudah diproses dalam batch ini
-          );
-
-          print(
-            'DEBUG - Validating kupon ${kupon.nomorKupon}: ${validationResult.isValid}',
-          );
-          if (!validationResult.isValid) {
-            print('DEBUG - Validation messages: ${validationResult.messages}');
-          }
-
-          if (!validationResult.isValid) {
-            // Cek apakah ini duplikat atau error lain
-            final isDuplicate = validationResult.messages.any(
-              (msg) =>
-                  msg.toLowerCase().contains('sudah ada') ||
-                  msg.toLowerCase().contains('duplikat') ||
-                  (msg.toLowerCase().contains('kupon') &&
-                      msg.toLowerCase().contains('sistem')),
-            );
-
-            print(
-              'DEBUG - Is duplicate: $isDuplicate for kupon ${kupon.nomorKupon}',
-            );
-
-            if (isDuplicate) {
-              // Ini duplikat - masukkan ke list duplikat untuk preview
-              // duplicateKupons.add(kupon);
-              // if (kendaraan != null) {
-              //   duplicateKendaraans.add(kendaraan);
-              // }
-              // validationMessages.add(
-              //   'Baris $rowNumber: DUPLIKAT - ${validationResult.messages.join(", ")}',
-              // );
-            } else {
-              // PERBAIKAN: Kategorikan error - beberapa bisa diabaikan untuk tetap melanjutkan proses
-              final isCriticalError = validationResult.messages.any(
-                (msg) =>
-                    msg.toLowerCase().contains('tidak valid') ||
-                    msg.toLowerCase().contains('kosong') ||
-                    msg.toLowerCase().contains('format'),
-              );
-
-              if (isCriticalError) {
-                // Error kritis - skip kupon ini
-                validationMessages.addAll(
-                  validationResult.messages.map(
-                    (msg) => 'Baris $rowNumber: CRITICAL ERROR - $msg',
-                  ),
-                );
-              } else {
-                // Non-critical error - bisa tetap diproses dengan warning
-                validationMessages.addAll(
-                  validationResult.messages.map(
-                    (msg) => 'Baris $rowNumber: WARNING - $msg',
-                  ),
-                );
-
-                // Tetap tambahkan ke list untuk diproses
-                kupons.add(kupon);
-                if (kendaraan != null) {
-                  newKendaraans.add(kendaraan);
-                }
-              }
+          // Cek apakah kupon ini duplikat terhadap existingKupons
+          if (existingUniqueKeys.contains(uniqueKey)) {
+            duplicateKupons.add(kupon);
+            if (kendaraan != null) {
+              duplicateKendaraans.add(kendaraan);
             }
+            validationMessages.add(
+              'Baris $rowNumber: DUPLIKAT terhadap data yang sudah ada di sistem - Kupon ${kupon.nomorKupon} (${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"}) untuk ${kupon.namaSatker} di bulan ${kupon.bulanTerbit}/${kupon.tahunTerbit}.',
+            );
           } else {
-            // Validasi berhasil - ini kupon baru
+            // Kupon ini bukan duplikat terhadap existing, tambahkan ke list sementara
             kupons.add(kupon);
             if (kendaraan != null) {
               newKendaraans.add(kendaraan);
@@ -300,7 +288,10 @@ class ExcelDatasource {
     print('DEBUG - Final duplicate count: ${duplicateKupons.length}');
     print('DEBUG - Total expected: ${kupons.length + duplicateKupons.length}');
 
-    final seenRows = <String>{};
+    // --- Logika untuk menangani duplikat INTERNAL dalam file ---
+    // Kita ingin mendeteksi dan memisahkan entri yang BENAR-BENAR IDENTIK dalam file yang sama
+    // Kita gunakan _generateFullUniqueKey untuk membuat kunci berdasarkan SEMUA field KuponModel
+    final seenFullKeysInFile = <String>{};
     final uniqueKupons = <KuponModel>[];
     final uniqueKendaraans = <KendaraanModel>[];
     final inFileDuplicateKupons = <KuponModel>[];
@@ -309,66 +300,43 @@ class ExcelDatasource {
     for (int i = 0; i < kupons.length; i++) {
       final k = kupons[i];
       final kendaraan = i < newKendaraans.length ? newKendaraans[i] : null;
+      // Gunakan kunci yang mencakup SEMUA field untuk mendeteksi duplikat internal
+      final fullUniqueKey = _generateFullUniqueKey(k);
 
-      // Gabungkan semua kolom yang relevan dari Kupon
-      final kuponSignature = [
-        k.nomorKupon,
-        k.kendaraanId?.toString() ?? '', // biar aman kalau null (DUKUNGAN)
-        k.jenisBbmId.toString(),
-        k.jenisKuponId.toString(),
-        k.bulanTerbit.toString(),
-        k.tahunTerbit.toString(),
-        k.tanggalMulai,
-        k.tanggalSampai,
-        k.kuotaAwal.toString(),
-        k.kuotaSisa.toString(),
-        k.satkerId.toString(),
-        k.namaSatker,
-        k.status,
-      ];
-
-      // Gabungkan kolom Kendaraan (jika ada)
-      final kendaraanSignature = kendaraan != null
-          ? [
-              kendaraan.satkerId.toString(),
-              kendaraan.jenisRanmor,
-              kendaraan.noPolKode,
-              kendaraan.noPolNomor,
-              kendaraan.statusAktif.toString(),
-            ]
-          : [];
-
-      // Bentuk 1 string unik yang mewakili seluruh baris Excel
-      final rowSignature = [...kuponSignature, ...kendaraanSignature].join('|');
-
-      if (seenRows.contains(rowSignature)) {
-        // duplikat di dalam file
+      if (seenFullKeysInFile.contains(fullUniqueKey)) {
+        // Duplikat internal dalam file (benar-benar identik)
+        print('DEBUG: Found internal duplicate at index $i with key: $fullUniqueKey');
         inFileDuplicateKupons.add(k);
         if (kendaraan != null) inFileDuplicateKendaraans.add(kendaraan);
       } else {
-        seenRows.add(rowSignature);
+        seenFullKeysInFile.add(fullUniqueKey);
         uniqueKupons.add(k);
         if (kendaraan != null) uniqueKendaraans.add(kendaraan);
       }
     }
 
-
     // Tambahkan ke pesan validasi
     if (inFileDuplicateKupons.isNotEmpty) {
       validationMessages.add(
-        'Terdeteksi ${inFileDuplicateKupons.length} duplikat di dalam file Excel yang sama (baris identik).',
+        'Terdeteksi ${inFileDuplicateKupons.length} entri benar-benar identik di dalam file Excel yang sama.',
       );
     }
 
     // Setelah parsing dan validasi, simpan ke database
+    // Sekarang, uniqueKupons seharusnya berisi SEMUA entri dari file
+    // kecuali yang benar-benar identik satu sama lain.
     if (uniqueKupons.isNotEmpty) {
       await _databaseDatasource.insertKupons(uniqueKupons);
     }
+
     return ExcelParseResult(
-      kupons: uniqueKupons,
+      kupons: uniqueKupons, // Gunakan yang unik dalam file (tidak benar-benar identik)
       newKendaraans: uniqueKendaraans,
-      duplicateKupons: [...duplicateKupons, ...inFileDuplicateKupons],
-      duplicateKendaraans: [...duplicateKendaraans, ...inFileDuplicateKendaraans],
+      duplicateKupons: [...duplicateKupons, ...inFileDuplicateKupons], // Gabungkan semua duplikat
+      duplicateKendaraans: [
+        ...duplicateKendaraans,
+        ...inFileDuplicateKendaraans,
+      ],
       validationMessages: validationMessages,
     );
   }
@@ -400,7 +368,8 @@ class ExcelDatasource {
     final cell1Lower = cell1.toLowerCase();
 
     // Hanya skip baris yang memang berisi kata "Jenis Kupon" atau "No Kupon"
-    final isHeaderRow = (cell0Lower.contains('jenis') && cell0Lower.contains('kupon')) ||
+    final isHeaderRow =
+        (cell0Lower.contains('jenis') && cell0Lower.contains('kupon')) ||
         (cell1Lower.contains('no') && cell1Lower.contains('kupon')) ||
         (cell1Lower.contains('nomor') && cell1Lower.contains('kupon'));
 
@@ -411,9 +380,7 @@ class ExcelDatasource {
 
     // Skip jika baris tidak memiliki data minimal (noKupon)
     if (cell1.trim().isEmpty) {
-      print(
-        'Debug - Skipping incomplete row: noKupon="$cell1"',
-      );
+      print('Debug - Skipping incomplete row: noKupon="$cell1"');
       return null;
     }
 
@@ -464,7 +431,9 @@ class ExcelDatasource {
 
     // Jenis Ranmor - NULLABLE (boleh kosong)
     final jenisRanmor = _getCellString(row, 4);
-    print('Debug - Jenis Ranmor: "${jenisRanmor.isEmpty ? "NULL" : jenisRanmor}"');
+    print(
+      'Debug - Jenis Ranmor: "${jenisRanmor.isEmpty ? "NULL" : jenisRanmor}"',
+    );
 
     // Satker - NORMALIZED (selalu konsisten huruf besar, tanpa spasi)
     final satkerRaw = _getCellString(row, 5).trim();
@@ -494,7 +463,9 @@ class ExcelDatasource {
 
     // Kode Nopol - NULLABLE (boleh kosong)
     final kodeNopol = _getCellString(row, 7);
-    print('Debug - Kode Nopol: "${kodeNopol.isEmpty ? "NULL (akan gunakan default)" : kodeNopol}"');
+    print(
+      'Debug - Kode Nopol: "${kodeNopol.isEmpty ? "NULL (akan gunakan default)" : kodeNopol}"',
+    );
 
     final jenisBBM = _getCellString(row, 8);
     final kuantumStr = _getCellString(row, 9);
@@ -552,23 +523,26 @@ class ExcelDatasource {
     // Untuk DUKUNGAN, jenisRanmor boleh kosong, akan diisi default
     final finalJenisRanmor = (isDukungan && jenisRanmor.isEmpty)
         ? 'N/A (DUKUNGAN)'
-        : jenisRanmor.isEmpty ? 'TIDAK DIISI' : jenisRanmor;
+        : jenisRanmor.isEmpty
+        ? 'TIDAK DIISI'
+        : jenisRanmor;
 
     final tanggalMulai = DateTime(tahun, bulan, 1);
     final tanggalSampai = DateTime(tahun, bulan + 1, 0);
 
     // Gunakan kode yang ada di Excel atau default
-    final finalKodeNopol = kodeNopol.isNotEmpty ? kodeNopol : DEFAULT_KODE_NOPOL;
+    final finalKodeNopol = kodeNopol.isNotEmpty
+        ? kodeNopol
+        : DEFAULT_KODE_NOPOL;
 
     // Get satkerId from database
     final db = await _databaseDatasource.database;
-  final satkerResult = await db.query(
-    'dim_satker',
-    where: 'UPPER(TRIM(nama_satker)) = ?',
-    whereArgs: [satker.trim().toUpperCase()],
-    limit: 1,
-  );
-
+    final satkerResult = await db.query(
+      'dim_satker',
+      where: 'UPPER(TRIM(nama_satker)) = ?',
+      whereArgs: [satker.trim().toUpperCase()],
+      limit: 1,
+    );
 
     int satkerId;
     if (satkerResult.isNotEmpty) {
@@ -585,7 +559,8 @@ class ExcelDatasource {
     if (!isDukungan && noPol != null && noPol.isNotEmpty) {
       final kendaraanRow = await db.query(
         'dim_kendaraan',
-        where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+        where:
+            'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
         whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
         limit: 1,
       );
@@ -596,13 +571,21 @@ class ExcelDatasource {
         try {
           kendaraanId = await db.rawInsert(
             'INSERT OR IGNORE INTO dim_kendaraan (satker_id, jenis_ranmor, no_pol_kode, no_pol_nomor, status_aktif, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            [satkerId, finalJenisRanmor, finalKodeNopol, noPol, 1, DateTime.now().toIso8601String()],
+            [
+              satkerId,
+              finalJenisRanmor,
+              finalKodeNopol,
+              noPol,
+              1,
+              DateTime.now().toIso8601String(),
+            ],
           );
         } catch (e) {
           // Jika gagal karena UNIQUE constraint, fallback ke select
           final fallbackCheck = await db.query(
             'dim_kendaraan',
-            where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+            where:
+                'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
             whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
             limit: 1,
           );
@@ -614,10 +597,11 @@ class ExcelDatasource {
           }
         }
         // Jika kendaraanId tetap null, cari lagi (harusnya tidak terjadi)
-        if (kendaraanId == 0 || kendaraanId == null) {
+        if (kendaraanId == 0) {
           final finalCheck = await db.query(
             'dim_kendaraan',
-            where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+            where:
+                'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
             whereArgs: [satkerId, finalJenisRanmor, finalKodeNopol, noPol],
             limit: 1,
           );
@@ -625,7 +609,9 @@ class ExcelDatasource {
             kendaraanId = finalCheck.first['kendaraan_id'] as int;
             kendaraan = null;
           } else {
-            throw Exception('Gagal menyisipkan kendaraan dan tidak ditemukan di database.');
+            throw Exception(
+              'Gagal menyisipkan kendaraan dan tidak ditemukan di database.',
+            );
           }
         } else {
           kendaraan = KendaraanModel(
@@ -639,26 +625,30 @@ class ExcelDatasource {
           );
         }
       }
-    // Validasi kendaraanId untuk kupon non-dukungan
-    if (!isDukungan && (kendaraanId == null || kendaraanId == 0)) {
-      throw Exception(
-        'Kupon Non-Dukungan memerlukan data Kendaraan (No Pol & Jenis Ranmor) yang valid, namun gagal dibuat/ditemukan.',
-      );
-    }
+      // Validasi kendaraanId untuk kupon non-dukungan
+      if (!isDukungan && kendaraanId == 0) {
+        throw Exception(
+          'Kupon Non-Dukungan memerlukan data Kendaraan (No Pol & Jenis Ranmor) yang valid, namun gagal dibuat/ditemukan.',
+        );
+      }
     }
 
     // Tentukan jenis BBM ID
     int jenisBbmId = 1; // Default Pertamax
     if (jenisBBM.isNotEmpty) {
       final jenisBBMLower = jenisBBM.toLowerCase();
-      if (jenisBBMLower.contains('pertamina dex') || jenisBBMLower.contains('dexlite') || jenisBBMLower.contains('dex')) {
+      if (jenisBBMLower.contains('pertamina dex') ||
+          jenisBBMLower.contains('dexlite') ||
+          jenisBBMLower.contains('dex')) {
         jenisBbmId = 2;
       }
     }
-        print('DEBUG - jenisBbmId to insert: value=$jenisBbmId, type=${jenisBbmId.runtimeType}, from Jenis BBM="$jenisBBM"');
+    print(
+      'DEBUG - jenisBbmId to insert: value=$jenisBbmId, type=${jenisBbmId.runtimeType}, from Jenis BBM="$jenisBBM"',
+    );
 
     final kupon = KuponModel(
-      kuponId: 0,
+      kuponId: 0, // ID akan diisi oleh database saat insert
       nomorKupon: noKupon,
       kendaraanId: isDukungan ? null : kendaraanId,
       jenisBbmId: jenisBbmId,
@@ -680,4 +670,3 @@ class ExcelDatasource {
     return (kupon, kendaraan);
   }
 }
-      

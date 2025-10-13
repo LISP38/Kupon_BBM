@@ -10,8 +10,6 @@ import 'package:kupon_bbm_app/domain/repositories/kupon_repository_impl.dart';
 import 'package:kupon_bbm_app/domain/repositories/master_data_repository.dart';
 import 'package:kupon_bbm_app/domain/repositories/master_data_repository_impl.dart';
 import 'package:kupon_bbm_app/domain/repositories/transaksi_repository_impl.dart';
-import 'package:kupon_bbm_app/domain/repositories/import_history_repository.dart';
-import 'package:kupon_bbm_app/domain/repositories/import_history_repository_impl.dart';
 import 'package:kupon_bbm_app/presentation/providers/enhanced_import_provider.dart';
 
 final getIt = GetIt.instance;
@@ -39,14 +37,9 @@ Future<void> initializeDependencies() async {
   // Validators
   getIt.registerLazySingleton<KuponValidator>(() => KuponValidator());
 
-  // Excel datasource - harus didaftarkan setelah validator
+  // Excel datasource
   getIt.registerLazySingleton<ExcelDatasource>(
-    () => ExcelDatasource(getIt<KuponValidator>(), getIt<DatabaseDatasource>()),
-  );
-
-  // Import History Repository
-  getIt.registerLazySingleton<ImportHistoryRepository>(
-    () => ImportHistoryRepositoryImpl(getIt<DatabaseDatasource>()),
+    () => ExcelDatasource(getIt<DatabaseDatasource>()),
   );
 
   // Enhanced Import Service
@@ -54,7 +47,6 @@ Future<void> initializeDependencies() async {
     () => EnhancedImportService(
       excelDatasource: getIt<ExcelDatasource>(),
       kuponRepository: getIt<KuponRepository>(),
-      importHistoryRepository: getIt<ImportHistoryRepository>(),
       databaseDatasource: getIt<DatabaseDatasource>(),
     ),
   );

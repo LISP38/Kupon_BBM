@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../providers/enhanced_import_provider.dart';
 import '../../../data/services/enhanced_import_service.dart';
-import 'import_history_page.dart';
 import 'import_preview_page.dart';
 
 class ImportPage extends StatefulWidget {
@@ -99,7 +98,7 @@ class _ImportPageState extends State<ImportPage> {
               Provider.of<EnhancedImportProvider>(
                 context,
                 listen: false,
-              ).setExpectedPeriod(_expectedMonth, _expectedYear);
+              ).setExpectedPeriod(_expectedMonth ?? 0, _expectedYear ?? 0);
               Navigator.pop(context);
             },
             child: const Text('Simpan'),
@@ -127,18 +126,6 @@ class _ImportPageState extends State<ImportPage> {
                 icon: const Icon(Icons.schedule),
                 tooltip: 'Set Periode',
                 onPressed: _showPeriodDialog,
-              ),
-              IconButton(
-                icon: const Icon(Icons.history),
-                tooltip: 'Riwayat Import',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ImportHistoryPage(),
-                    ),
-                  );
-                },
               ),
             ],
           ),
@@ -255,7 +242,7 @@ class _ImportPageState extends State<ImportPage> {
                                 ? null
                                 : () async {
                                     try {
-                                      await provider.validateOnly();
+                                      await provider.getPreviewData();
                                       if (mounted) {
                                         ScaffoldMessenger.of(
                                           context,
@@ -309,6 +296,19 @@ class _ImportPageState extends State<ImportPage> {
                                       // Get preview data
                                       final previewData = await provider
                                           .getPreviewData();
+                                      if (previewData == null) {
+                                        if (mounted) {
+                                          scaffoldMessenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Tidak ada data yang bisa dipreview',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                        return;
+                                      }
+
                                       final fileName = provider
                                           .selectedFilePath!
                                           .split('/')

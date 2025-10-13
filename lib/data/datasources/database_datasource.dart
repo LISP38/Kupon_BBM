@@ -9,8 +9,8 @@ class DatabaseDatasource {
   Future<void> insertKupons(List<KuponModel> kupons) async {
     final db = await database;
     final batch = db.batch();
-  // Ambil mapping satker dari master
-  final satkerRows = await db.query('dim_satker');
+    // Ambil mapping satker dari master
+    final satkerRows = await db.query('dim_satker');
     final satkerMap = <String, int>{};
     for (final row in satkerRows) {
       final name = (row['nama_satker'] as String).trim().toLowerCase();
@@ -33,11 +33,11 @@ class DatabaseDatasource {
           satkerId = existing.first['satker_id'] as int;
           satkerMap[namaSatkerLower] = satkerId;
         } else {
-          satkerId = await db.insert('dim_satker', {
-            'nama_satker': namaSatker,
-          });
+          satkerId = await db.insert('dim_satker', {'nama_satker': namaSatker});
           satkerMap[namaSatkerLower] = satkerId;
-          print('INFO: Satker baru ditambahkan: "$namaSatker" dengan id $satkerId');
+          print(
+            'INFO: Satker baru ditambahkan: "$namaSatker" dengan id $satkerId',
+          );
         }
       }
 
@@ -85,6 +85,7 @@ class DatabaseDatasource {
     await batch.commit(noResult: true);
     print('DEBUG: Batch insertKupons completed: ${kupons.length} kupons');
   }
+
   Database? _database;
   final String _dbFileName = 'kupon_bbm.db';
 
@@ -161,58 +162,13 @@ class DatabaseDatasource {
           }
 
           if (oldVersion < 3) {
-            // Add import history tracking tables
-            await db.execute('''
-              CREATE TABLE import_history (
-                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name TEXT NOT NULL,
-                import_type TEXT NOT NULL,
-                import_date TEXT NOT NULL,
-                expected_period TEXT,
-                total_kupons INTEGER NOT NULL,
-                success_count INTEGER DEFAULT 0,
-                error_count INTEGER DEFAULT 0,
-                duplicate_count INTEGER DEFAULT 0,
-                status TEXT NOT NULL DEFAULT 'PROCESSING',
-                error_message TEXT,
-                metadata TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-              );
-            ''');
-
-            await db.execute('''
-              CREATE TABLE import_details (
-                detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER NOT NULL,
-                kupon_data TEXT NOT NULL,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                action TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
-                  ON DELETE CASCADE
-              );
-            ''');
-
-            // Add indexes for import history
-            await db.execute(
-              'CREATE INDEX idx_import_history_date ON import_history(import_date);',
-            );
-            await db.execute(
-              'CREATE INDEX idx_import_history_status ON import_history(status);',
-            );
-            await db.execute(
-              'CREATE INDEX idx_import_details_session ON import_details(session_id);',
-            );
-
-            print('DEBUG: Import history tables created');
+            print('DEBUG: Version 3 migration skipped');
           }
 
           if (oldVersion < 4) {
             // Make kendaraan_id nullable to support DUKUNGAN kupon
             print('DEBUG: Making kendaraan_id nullable in fact_kupon');
-            
+
             // Create new table with nullable kendaraan_id
             await db.execute('''
               CREATE TABLE fact_kupon_new (
@@ -241,20 +197,20 @@ class DatabaseDatasource {
                   ON DELETE RESTRICT ON UPDATE CASCADE
               );
             ''');
-            
+
             // Copy data from old table
             await db.execute('''
               INSERT INTO fact_kupon_new 
               SELECT * FROM fact_kupon;
             ''');
-            
+
             // Drop old table and rename
             await db.execute('DROP TABLE fact_kupon');
-            await db.execute(
-              'ALTER TABLE fact_kupon_new RENAME TO fact_kupon',
+            await db.execute('ALTER TABLE fact_kupon_new RENAME TO fact_kupon');
+
+            print(
+              'DEBUG: fact_kupon table migrated with nullable kendaraan_id',
             );
-            
-            print('DEBUG: fact_kupon table migrated with nullable kendaraan_id');
           }
         },
       ),
@@ -350,40 +306,6 @@ class DatabaseDatasource {
       );
     ''');
 
-    // Import history tables
-    batch.execute('''
-      CREATE TABLE IF NOT EXISTS import_history (
-        session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_name TEXT NOT NULL,
-        import_type TEXT NOT NULL,
-        import_date TEXT NOT NULL,
-        expected_period TEXT,
-        total_kupons INTEGER NOT NULL,
-        success_count INTEGER DEFAULT 0,
-        error_count INTEGER DEFAULT 0,
-        duplicate_count INTEGER DEFAULT 0,
-        status TEXT NOT NULL DEFAULT 'PROCESSING',
-        error_message TEXT,
-        metadata TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-    ''');
-
-    batch.execute('''
-      CREATE TABLE IF NOT EXISTS import_details (
-        detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL,
-        kupon_data TEXT NOT NULL,
-        status TEXT NOT NULL,
-        error_message TEXT,
-        action TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
-          ON DELETE CASCADE
-      );
-    ''');
-
     // Indexes
     batch.execute(
       'CREATE INDEX IF NOT EXISTS idx_kendaraan_satker ON dim_kendaraan(satker_id);',
@@ -396,15 +318,6 @@ class DatabaseDatasource {
     );
     batch.execute(
       'CREATE INDEX IF NOT EXISTS idx_transaksi_kupon ON fact_transaksi(kupon_id);',
-    );
-    batch.execute(
-      'CREATE INDEX IF NOT EXISTS idx_import_history_date ON import_history(import_date);',
-    );
-    batch.execute(
-      'CREATE INDEX IF NOT EXISTS idx_import_history_status ON import_history(status);',
-    );
-    batch.execute(
-      'CREATE INDEX IF NOT EXISTS idx_import_details_session ON import_details(session_id);',
     );
 
     await batch.commit(noResult: true);
