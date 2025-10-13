@@ -97,6 +97,18 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildRanjenContent(BuildContext context) {
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    // Always filter for Ranjen (jenis_kupon_id = 1)
+    provider.setFilter(
+      jenisKupon: '1',
+      nomorKupon: _nomorKuponController.text,
+      satker: _selectedSatker,
+      jenisBBM: _selectedJenisBBM,
+      nopol: _nopolController.text,
+      jenisRanmor: _selectedJenisRanmor,
+      bulanTerbit: _selectedBulan,
+      tahunTerbit: _selectedTahun,
+    );
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -120,6 +132,18 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildDukunganContent(BuildContext context) {
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    // Always filter for Dukungan (jenis_kupon_id = 2)
+    provider.setFilter(
+      jenisKupon: '2',
+      nomorKupon: _nomorKuponController.text,
+      satker: _selectedSatker,
+      jenisBBM: _selectedJenisBBM,
+      nopol: _nopolController.text,
+      jenisRanmor: _selectedJenisRanmor,
+      bulanTerbit: _selectedBulan,
+      tahunTerbit: _selectedTahun,
+    );
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(

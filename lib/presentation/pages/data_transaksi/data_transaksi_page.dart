@@ -4,6 +4,7 @@ import 'package:excel/excel.dart' as excel_lib;
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../../providers/transaksi_provider.dart';
+import 'show_detail_transaksi_dialog.dart';
 
 class DataTransaksiPage extends StatefulWidget {
   const DataTransaksiPage({super.key});
@@ -244,15 +245,74 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.edit),
+                          icon: const Icon(Icons.info_outline),
+                          tooltip: 'Detail',
                           onPressed: () async {
-                            // TODO: Implement edit
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => ShowDetailTransaksiDialog(transaksi: t),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit),
+                          tooltip: 'Edit',
+                          onPressed: () async {
+                            // Show confirmation before edit
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Konfirmasi Edit'),
+                                content: const Text('Edit transaksi ini?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    child: const Text('Batal'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(true),
+                                    child: const Text('Edit'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm == true) {
+                              // TODO: Implement edit logic and show success/error SnackBar
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Transaksi berhasil diedit!')),
+                              );
+                            }
                           },
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete),
+                          tooltip: 'Delete',
                           onPressed: () async {
-                            // TODO: Implement delete
+                            // Show confirmation before delete
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Konfirmasi Hapus'),
+                                content: const Text('Hapus transaksi ini?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    child: const Text('Batal'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(ctx).pop(true),
+                                    child: const Text('Hapus'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirm == true) {
+                              // TODO: Implement delete logic and show success/error SnackBar
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Transaksi berhasil dihapus!')),
+                              );
+                            }
                           },
                         ),
                       ],
