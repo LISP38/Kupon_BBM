@@ -242,6 +242,10 @@ class _ImportPageState extends State<ImportPage> {
                                 ? null
                                 : () async {
                                     try {
+                                      // Set import type to validate_only first
+                                      provider.setImportType(
+                                        ImportType.validate_only,
+                                      );
                                       await provider.getPreviewData();
                                       if (mounted) {
                                         ScaffoldMessenger.of(
@@ -285,12 +289,112 @@ class _ImportPageState extends State<ImportPage> {
                                       final scaffoldMessenger =
                                           ScaffoldMessenger.of(context);
 
+                                      // Show confirmation dialog
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: const Text(
+                                            'Konfirmasi Import',
+                                          ),
+                                          content: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'Pilih metode import:',
+                                              ),
+                                              const SizedBox(height: 16),
+                                              ElevatedButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  false,
+                                                ),
+                                                child: const Text(
+                                                  'Preview dulu',
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              ElevatedButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  true,
+                                                ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                  foregroundColor: Colors.white,
+                                                ),
+                                                child: const Text(
+                                                  'Langsung Import',
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+
+                                      if (confirm == null)
+                                        return; // Dialog dismissed
+
+                                      if (confirm) {
+                                        // Direct import
+                                        scaffoldMessenger.showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Mengimport file...'),
+                                            duration: Duration(seconds: 1),
+                                          ),
+                                        );
+
+                                        // Set import type to validate_and_save for direct import
+                                        provider.setImportType(
+                                          ImportType.validate_and_save,
+                                        );
+
+                                        // Perform direct import
+                                        final result = await provider
+                                            .performImport();
+
+                                        if (result.success) {
+                                          scaffoldMessenger.showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Import berhasil!'),
+                                            ),
+                                          );
+                                          setState(() {
+                                            _importCompleted = true;
+                                          });
+                                        }
+                                        return;
+                                      }
+
+                                      // Preview mode
+                                      scaffoldMessenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Memproses file untuk preview...',
+                                          ),
+                                          duration: Duration(seconds: 1),
+                                        ),
+                                      );
+
                                       // Show loading indicator
                                       scaffoldMessenger.showSnackBar(
                                         const SnackBar(
                                           content: Text('Memproses file...'),
                                           duration: Duration(seconds: 1),
                                         ),
+                                      );
+
+                                      // Set import type to dry_run for preview
+                                      provider.setImportType(
+                                        ImportType.dry_run,
+                                      );
+
+                                      // Set import type to dry_run for preview
+                                      provider.setImportType(
+                                        ImportType.dry_run,
                                       );
 
                                       // Get preview data
@@ -572,19 +676,23 @@ class _ImportPageState extends State<ImportPage> {
 
   String _getImportTypeLabel(ImportType type) {
     switch (type) {
-      case ImportType.append:
-        return 'Tambah Data (Append)';
       case ImportType.validate_only:
-        return 'Validasi Saja';
+        return 'Mode Validasi';
+      case ImportType.dry_run:
+        return 'Mode Simulasi';
+      case ImportType.validate_and_save:
+        return 'Mode Import Penuh';
     }
   }
 
   String _getImportTypeDescription(ImportType type) {
     switch (type) {
-      case ImportType.append:
-        return 'Menambahkan data baru, duplikat akan ditolak dengan validasi ketat';
       case ImportType.validate_only:
         return 'Hanya mengecek validitas data tanpa menyimpan ke database';
+      case ImportType.dry_run:
+        return 'Menjalankan simulasi import tanpa menyimpan ke database';
+      case ImportType.validate_and_save:
+        return 'Import data dengan validasi dan simpan ke database';
     }
   }
 

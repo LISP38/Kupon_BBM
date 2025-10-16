@@ -4,11 +4,13 @@ import 'package:dropdown_search/dropdown_search.dart';
 
 import '../../../core/di/dependency_injection.dart';
 import '../../../domain/entities/kendaraan_entity.dart';
+import '../../../domain/entities/kupon_entity.dart';
 import '../../../data/models/kendaraan_model.dart';
 import '../../../domain/repositories/kendaraan_repository.dart';
 import '../../../data/services/export_service.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../providers/master_data_provider.dart';
+import '../../providers/transaksi_provider.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -711,6 +713,7 @@ class _DashboardPageState extends State<DashboardPage>
                       Text(
                         '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
                       ),
+                      onTap: () => _showKuponDetailDialog(context, k),
                     ),
                     DataCell(Text(k.namaSatker)),
                     DataCell(
@@ -794,6 +797,7 @@ class _DashboardPageState extends State<DashboardPage>
                           Text(
                             '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
                           ),
+                          onTap: () => _showKuponDetailDialog(context, k),
                         ),
                         DataCell(Text(k.namaSatker)),
                         DataCell(
@@ -849,5 +853,142 @@ class _DashboardPageState extends State<DashboardPage>
     );
     if (kendaraan.kendaraanId == 0) return '-';
     return kendaraan.jenisRanmor;
+  }
+
+  Future<void> _showKuponDetailDialog(
+    BuildContext context,
+    KuponEntity kupon,
+  ) async {
+    // Calculate dates
+    final tanggalTerbit = DateTime(kupon.tahunTerbit, kupon.bulanTerbit, 1);
+    final tanggalKadaluarsa = tanggalTerbit.add(const Duration(days: 60));
+
+    // Get any transactions for this coupon
+    final transaksiProvider = Provider.of<TransaksiProvider>(
+      context,
+      listen: false,
+    );
+    await transaksiProvider.fetchTransaksiFiltered();
+    final transaksiList = transaksiProvider.transaksiList
+        .where((t) => t.kuponId == kupon.kuponId)
+        .toList();
+
+    if (!context.mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(24, 24, 16, 0),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Detail Kupon'),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+        content: SizedBox(
+          width: 600,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 8),
+                _buildDetailRow(
+                  'Nomor Kupon',
+                  '${kupon.nomorKupon}/${kupon.bulanTerbit}/${kupon.tahunTerbit}/LOGISTIK',
+                ),
+                _buildDetailRow(
+                  'Jenis BBM',
+                  _jenisBBMMap[kupon.jenisBbmId] ?? kupon.jenisBbmId.toString(),
+                ),
+                _buildDetailRow(
+                  'Jenis Kupon',
+                  kupon.jenisKuponId == 1 ? 'RANJEN' : 'DUKUNGAN',
+                ),
+                _buildDetailRow(
+                  'Kuota Awal',
+                  '${kupon.kuotaAwal.toStringAsFixed(2)} L',
+                ),
+                _buildDetailRow(
+                  'Kuota Sisa',
+                  '${kupon.kuotaSisa.toStringAsFixed(2)} L',
+                ),
+                _buildDetailRow('Status', kupon.status),
+                _buildDetailRow(
+                  'Tanggal Terbit',
+                  '${tanggalTerbit.day}/${tanggalTerbit.month}/${tanggalTerbit.year}',
+                ),
+                _buildDetailRow(
+                  'Tanggal Kadaluarsa',
+                  '${tanggalKadaluarsa.day}/${tanggalKadaluarsa.month}/${tanggalKadaluarsa.year}',
+                ),
+                const Divider(height: 32),
+                const Text(
+                  'Riwayat Penggunaan',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (transaksiList.isNotEmpty) ...[
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Tanggal')),
+                        DataColumn(label: Text('Jumlah (L)')),
+                      ],
+                      rows: transaksiList
+                          .map(
+                            (t) => DataRow(
+                              cells: [
+                                DataCell(Text(t.tanggalTransaksi)),
+                                DataCell(Text('${t.jumlahLiter} L')),
+                              ],
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ] else
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Belum ada penggunaan kupon',
+                      style: TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          const Text(': '),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
   }
 }

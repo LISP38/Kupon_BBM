@@ -6,7 +6,7 @@ import '../validators/enhanced_import_validator.dart';
 import '../../domain/repositories/kupon_repository.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-enum ImportType { append, validate_only }
+enum ImportType { validate_only, dry_run, validate_and_save }
 
 class ImportResult {
   final bool success;
@@ -191,7 +191,8 @@ class EnhancedImportService {
 
     print('Processing ${newKendaraans.length} kendaraans...');
     for (final kendaraan in newKendaraans) {
-      final key = '${kendaraan.satkerId}_${kendaraan.jenisRanmor}_${kendaraan.noPolKode}_${kendaraan.noPolNomor}';
+      final key =
+          '${kendaraan.satkerId}_${kendaraan.jenisRanmor}_${kendaraan.noPolKode}_${kendaraan.noPolNomor}';
 
       // Cek apakah kendaraan dengan kunci ini sudah diproses sebelumnya (menghindari duplikat internal kendaraan)
       if (kendaraanIdMap.containsKey(key)) {
@@ -203,8 +204,14 @@ class EnhancedImportService {
         // Cek apakah kendaraan sudah ada di database
         final existingResult = await db.query(
           'dim_kendaraan',
-          where: 'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
-          whereArgs: [kendaraan.satkerId, kendaraan.jenisRanmor, kendaraan.noPolKode, kendaraan.noPolNomor],
+          where:
+              'satker_id = ? AND jenis_ranmor = ? AND no_pol_kode = ? AND no_pol_nomor = ?',
+          whereArgs: [
+            kendaraan.satkerId,
+            kendaraan.jenisRanmor,
+            kendaraan.noPolKode,
+            kendaraan.noPolNomor,
+          ],
         );
 
         int kendaraanId;
@@ -216,7 +223,8 @@ class EnhancedImportService {
           kendaraanId = await db.insert(
             'dim_kendaraan',
             kendaraan.toMap(),
-            conflictAlgorithm: ConflictAlgorithm.replace, // Atau ConflictAlgorithm.abort jika ingin gagal saat duplikat
+            conflictAlgorithm: ConflictAlgorithm
+                .replace, // Atau ConflictAlgorithm.abort jika ingin gagal saat duplikat
           );
           print('Inserted new kendaraan with ID: $kendaraanId for key: $key');
         }
@@ -237,26 +245,29 @@ class EnhancedImportService {
       try {
         int? kendaraanId = null;
 
-        if (kupon.jenisKuponId == 1) { // Ranjen
-          // Cari kendaraan di mapping berdasarkan informasi dari kupon
-          // Kita asumsikan pencocokan dilakukan berdasarkan satker, jenis_ranmor, no_pol_kode, no_pol_nomor
-          final key = '${kupon.satkerId}_${kupon.namaSatker}_${kupon.kendaraanId}'; // Gunakan informasi dari kendaraan model jika dikenali
-
+        if (kupon.jenisKuponId == 1) {
+          // Ranjen
           // Alternatif: Coba temukan kendaraan model yang sesuai dari newKendaraans berdasarkan satker
           // Kita gunakan informasi yang diparsing dari Excel row untuk membuat kunci pencocokan
           // Misalnya, jika kupon Ranjen memiliki kendaraanId null, kita cari dari newKendaraans berdasarkan satker
           // Jika kupon Ranjen memiliki kendaraanId (karena _parseRow berhasil membuatnya), kita gunakan itu
           if (kupon.kendaraanId != null) {
-             kendaraanId = kupon.kendaraanId;
-             print('Using kendaraanId from KuponModel for Ranjen ${kupon.nomorKupon}: ${kendaraanId}');
+            kendaraanId = kupon.kendaraanId;
+            print(
+              'Using kendaraanId from KuponModel for Ranjen ${kupon.nomorKupon}: ${kendaraanId}',
+            );
           } else {
-              // Jika kendaraanId null, coba cari di map berdasarkan kombinasi lain (ini bisa kompleks)
-              // Lebih baik memastikan _parseRow selalu menghasilkan kendaraanId untuk Ranjen
-              // Jika tidak, berarti data kendaraan tidak ditemukan/valid
-              print('ERROR: Ranjen ${kupon.nomorKupon} has null kendaraanId and no matching kendaraan found in newKendaraans map.');
-              errorCount++;
-              errorMessages.add('Ranjen ${kupon.nomorKupon} (${kupon.namaSatker}) failed: Kendaraan not found or invalid.');
-              continue; // Lanjutkan ke kupon berikutnya
+            // Jika kendaraanId null, coba cari di map berdasarkan kombinasi lain (ini bisa kompleks)
+            // Lebih baik memastikan _parseRow selalu menghasilkan kendaraanId untuk Ranjen
+            // Jika tidak, berarti data kendaraan tidak ditemukan/valid
+            print(
+              'ERROR: Ranjen ${kupon.nomorKupon} has null kendaraanId and no matching kendaraan found in newKendaraans map.',
+            );
+            errorCount++;
+            errorMessages.add(
+              'Ranjen ${kupon.nomorKupon} (${kupon.namaSatker}) failed: Kendaraan not found or invalid.',
+            );
+            continue; // Lanjutkan ke kupon berikutnya
           }
 
           // Validasi apakah kendaraanId ditemukan di map (jika pencocokan manual dilakukan)
@@ -266,8 +277,8 @@ class EnhancedImportService {
           //    errorMessages.add('Ranjen ${kupon.nomorKupon} (${kupon.namaSatker}) failed: Kendaraan not found in map.');
           //    continue; // Lanjutkan ke kupon berikutnya
           // }
-
-        } else if (kupon.jenisKuponId == 2) { // Dukungan
+        } else if (kupon.jenisKuponId == 2) {
+          // Dukungan
           // Untuk non-CADANGAN, cari kendaraan_id dari kupon Ranjen terkait di database
           if (kupon.namaSatker.toUpperCase() != 'CADANGAN') {
             final ranjenResult = await db.query(
@@ -284,17 +295,25 @@ class EnhancedImportService {
 
             if (ranjenResult.isNotEmpty) {
               kendaraanId = ranjenResult.first['kendaraan_id'] as int?;
-              print('Found RANJEN with kendaraan_id: $kendaraanId for DUKUNGAN ${kupon.nomorKupon}');
+              print(
+                'Found RANJEN with kendaraan_id: $kendaraanId for DUKUNGAN ${kupon.nomorKupon}',
+              );
             } else {
-              print('No matching RANJEN found in DB for DUKUNGAN ${kupon.nomorKupon} (Satker: ${kupon.namaSatker}, Month: ${kupon.bulanTerbit}, Year: ${kupon.tahunTerbit})');
+              print(
+                'No matching RANJEN found in DB for DUKUNGAN ${kupon.nomorKupon} (Satker: ${kupon.namaSatker}, Month: ${kupon.bulanTerbit}, Year: ${kupon.tahunTerbit})',
+              );
               // Untuk DUKUNGAN non-CADANGAN, jika RANJEN tidak ditemukan, ini adalah error
               errorCount++;
-              errorMessages.add('Dukungan ${kupon.nomorKupon} (${kupon.namaSatker}) failed: No matching Ranjen found in database.');
+              errorMessages.add(
+                'Dukungan ${kupon.nomorKupon} (${kupon.namaSatker}) failed: No matching Ranjen found in database.',
+              );
               continue; // Lanjutkan ke kupon berikutnya
             }
           } else {
-              // Untuk CADANGAN, kendaraan_id tetap null
-              print('Processing CADANGAN DUKUNGAN ${kupon.nomorKupon}, kendaraan_id will be null.');
+            // Untuk CADANGAN, kendaraan_id tetap null
+            print(
+              'Processing CADANGAN DUKUNGAN ${kupon.nomorKupon}, kendaraan_id will be null.',
+            );
           }
         }
 
@@ -304,12 +323,14 @@ class EnhancedImportService {
         await db.insert(
           'fact_kupon',
           updatedKupon.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace, // Atau ConflictAlgorithm.abort jika ingin gagal saat duplikat
+          conflictAlgorithm: ConflictAlgorithm
+              .replace, // Atau ConflictAlgorithm.abort jika ingin gagal saat duplikat
         );
 
         successCount++;
-        print('✅ Successfully inserted kupon: ${kupon.nomorKupon} (${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"})');
-
+        print(
+          '✅ Successfully inserted kupon: ${kupon.nomorKupon} (${kupon.jenisKuponId == 1 ? "RANJEN" : "DUKUNGAN"})',
+        );
       } catch (e) {
         errorCount++;
         errorMessages.add('ERROR processing kupon ${kupon.nomorKupon}: $e');

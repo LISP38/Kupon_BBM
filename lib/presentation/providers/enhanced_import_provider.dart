@@ -9,7 +9,7 @@ class EnhancedImportProvider with ChangeNotifier {
 
   bool _isLoading = false;
   String? _selectedFilePath;
-  ImportType _importType = ImportType.append;
+  ImportType _importType = ImportType.validate_and_save;
   int? _expectedMonth;
   int? _expectedYear;
 
