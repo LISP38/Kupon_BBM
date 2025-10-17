@@ -563,16 +563,40 @@ class _TransactionPageState extends State<TransactionPage> {
                   label: const Text('Export Transaksi'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () =>
-                      _showTambahTransaksiDialog(context, jenisBbm: 1),
+                  onPressed: () => _showTambahTransaksiDialog(context, jenisBbm: 1, jenisKuponId: 1),
                   icon: const Icon(Icons.add),
-                  label: const Text('Tambah Pertamax'),
+                  label: const Text('Ranjen - Pertamax'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () =>
-                      _showTambahTransaksiDialog(context, jenisBbm: 2),
+                  onPressed: () => _showTambahTransaksiDialog(context, jenisBbm: 1, jenisKuponId: 2),
                   icon: const Icon(Icons.add),
-                  label: const Text('Tambah Dex'),
+                  label: const Text('Dukungan - Pertamax'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showTambahTransaksiDialog(context, jenisBbm: 2, jenisKuponId: 1),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Ranjen - Pertamina Dex'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showTambahTransaksiDialog(context, jenisBbm: 2, jenisKuponId: 2),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Dukungan - Pertamina Dex'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ],
             ),
@@ -741,6 +765,7 @@ class _TransactionPageState extends State<TransactionPage> {
   Future<void> _showTambahTransaksiDialog(
     BuildContext context, {
     required int jenisBbm,
+    required int jenisKuponId,
   }) async {
     final dashboardProvider = Provider.of<DashboardProvider>(
       context,
@@ -750,9 +775,9 @@ class _TransactionPageState extends State<TransactionPage> {
       context,
       listen: false,
     );
-    // Filter kuponList sesuai jenisBbm
+    // Filter kuponList sesuai jenisBbm dan jenisKuponId
     final List<KuponEntity> kuponList = dashboardProvider.kuponList
-        .where((k) => k.jenisBbmId == jenisBbm)
+        .where((k) => k.jenisBbmId == jenisBbm && k.jenisKuponId == jenisKuponId)
         .toList();
     final Map<int, String> jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
     final List<String> kuponOptions = kuponList
@@ -804,27 +829,10 @@ class _TransactionPageState extends State<TransactionPage> {
                     if (textEditingValue.text.isEmpty) {
                       return kuponOptions;
                     }
-                    print(
-                      '[AUTOCOMPLETE DEBUG] Input text: "${textEditingValue.text}"',
-                    );
-                    print(
-                      '[AUTOCOMPLETE DEBUG] Total kupon options: ${kuponOptions.length}',
-                    );
-
                     final filtered = kuponOptions.where((option) {
                       final nomorKupon = option.split('/')[0];
-                      final matches = nomorKupon.startsWith(
-                        textEditingValue.text,
-                      );
-                      print(
-                        '[AUTOCOMPLETE DEBUG] Option: $option, Nomor: $nomorKupon, Matches: $matches',
-                      );
-                      return matches;
+                      return nomorKupon.startsWith(textEditingValue.text);
                     });
-
-                    print(
-                      '[AUTOCOMPLETE DEBUG] Filtered results count: ${filtered.length}',
-                    );
                     return filtered;
                   },
                   onSelected: (value) {

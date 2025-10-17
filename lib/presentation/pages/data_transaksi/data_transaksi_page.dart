@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:excel/excel.dart' as excel_lib;
@@ -14,6 +15,11 @@ class DataTransaksiPage extends StatefulWidget {
 }
 
 class _DataTransaksiPageState extends State<DataTransaksiPage> {
+  void _navigateToTransaksiForm({required int jenisKuponId, required int jenisBbmId}) {
+    // TODO: Implement navigation to transaction form, passing jenisKuponId and jenisBbmId
+    // Example: Navigator.push(...)
+    print('Navigate to form: jenisKuponId=$jenisKuponId, jenisBbmId=$jenisBbmId');
+  }
   int? _selectedBulan;
   int? _selectedTahun;
 
@@ -154,41 +160,55 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   flex: 3,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  child: Wrap(
+                    spacing: 8,
                     children: [
                       ElevatedButton.icon(
                         onPressed: () {
-                          // TODO: Implement search
+                          // Ranjen-Pertamax
+                          _navigateToTransaksiForm(jenisKuponId: 1, jenisBbmId: 1);
                         },
-                        icon: const Icon(Icons.search),
-                        label: const Text('Cari'),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Ranjen - Pertamax'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).primaryColor,
+                          backgroundColor: Colors.blue,
                           foregroundColor: Colors.white,
                         ),
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: () {
-                          setState(() {
-                            _selectedBulan = null;
-                            _selectedTahun = null;
-                          });
-                          Provider.of<TransaksiProvider>(
-                            context,
-                            listen: false,
-                          ).resetFilter();
-                          Provider.of<TransaksiProvider>(
-                            context,
-                            listen: false,
-                          ).fetchTransaksiFiltered();
+                          // Dukungan-Pertamax
+                          _navigateToTransaksiForm(jenisKuponId: 2, jenisBbmId: 1);
                         },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset'),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Dukungan - Pertamax'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[300],
-                          foregroundColor: Colors.black87,
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          // Ranjen-Pertamina Dex
+                          _navigateToTransaksiForm(jenisKuponId: 1, jenisBbmId: 2);
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Ranjen - Pertamina Dex'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          // Dukungan-Pertamina Dex
+                          _navigateToTransaksiForm(jenisKuponId: 2, jenisBbmId: 2);
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Dukungan - Pertamina Dex'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
                         ),
                       ),
                     ],
@@ -196,6 +216,7 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
                 ),
               ],
             ),
+
           ],
         ),
       ),
@@ -759,3 +780,4 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
     );
   }
 }
+// ...existing code...

@@ -99,13 +99,14 @@ class _DashboardPageState extends State<DashboardPage>
     // Always filter for Ranjen (jenis_kupon_id = 1)
     provider.setFilter(
       jenisKupon: '1',
-      nomorKupon: _nomorKuponController.text,
-      satker: _selectedSatker,
       jenisBBM: _selectedJenisBBM,
-      nopol: _nopolController.text,
-      jenisRanmor: _selectedJenisRanmor,
-      bulanTerbit: _selectedBulan,
-      tahunTerbit: _selectedTahun,
+      // Filter lain dikosongkan agar data Ranjen pasti muncul
+      nomorKupon: null,
+      satker: null,
+      nopol: null,
+      jenisRanmor: null,
+      bulanTerbit: null,
+      tahunTerbit: null,
     );
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -134,13 +135,14 @@ class _DashboardPageState extends State<DashboardPage>
     // Always filter for Dukungan (jenis_kupon_id = 2)
     provider.setFilter(
       jenisKupon: '2',
-      nomorKupon: _nomorKuponController.text,
-      satker: _selectedSatker,
       jenisBBM: _selectedJenisBBM,
-      nopol: _nopolController.text,
-      jenisRanmor: _selectedJenisRanmor,
-      bulanTerbit: _selectedBulan,
-      tahunTerbit: _selectedTahun,
+      // Filter lain dikosongkan agar data Dukungan pasti muncul
+      nomorKupon: null,
+      satker: null,
+      nopol: null,
+      jenisRanmor: null,
+      bulanTerbit: null,
+      tahunTerbit: null,
     );
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -668,7 +670,176 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildDukunganFilterSection(BuildContext context) {
-    return _buildRanjenFilterSection(context);
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _nomorKuponController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nomor Kupon',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
+                    controller: _nopolController,
+                    decoration: const InputDecoration(
+                      labelText: 'NoPol',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedSatker,
+                    decoration: const InputDecoration(
+                      labelText: 'Satker',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: provider.satkerList
+                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _selectedSatker = value),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedJenisBBM,
+                    decoration: const InputDecoration(
+                      labelText: 'Jenis BBM',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _jenisBBMMap.entries
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e.key.toString(),
+                            child: Text(e.value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _selectedJenisBBM = value),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownSearch<String>(
+                    popupProps: const PopupProps.menu(
+                      showSearchBox: true,
+                      searchFieldProps: TextFieldProps(
+                        decoration: InputDecoration(
+                          hintText: 'Cari jenis ranmor...',
+                        ),
+                      ),
+                    ),
+                    items: _kendaraanList
+                        .map((k) => k.jenisRanmor)
+                        .toSet()
+                        .toList(),
+                    dropdownDecoratorProps: const DropDownDecoratorProps(
+                      dropdownSearchDecoration: InputDecoration(
+                        labelText: 'Jenis Ranmor',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    onChanged: (value) =>
+                        setState(() => _selectedJenisRanmor = value),
+                    selectedItem: _selectedJenisRanmor,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _selectedBulan,
+                    decoration: const InputDecoration(
+                      labelText: 'Bulan',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _bulanList
+                        .map(
+                          (b) => DropdownMenuItem(
+                            value: b,
+                            child: Text(b.toString()),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _selectedBulan = value),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: _selectedTahun,
+                    decoration: const InputDecoration(
+                      labelText: 'Tahun',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _tahunList
+                        .map(
+                          (t) => DropdownMenuItem(
+                            value: t,
+                            child: Text(t.toString()),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setState(() => _selectedTahun = value),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    provider.setFilter(
+                      nomorKupon: _nomorKuponController.text,
+                      satker: _selectedSatker,
+                      jenisBBM: _selectedJenisBBM,
+                      jenisKupon: '2', // Dukungan
+                      nopol: _nopolController.text,
+                      jenisRanmor: _selectedJenisRanmor,
+                      bulanTerbit: _selectedBulan,
+                      tahunTerbit: _selectedTahun,
+                    );
+                  },
+                  icon: const Icon(Icons.search),
+                  label: const Text('Filter'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _resetFilters,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reset Filter'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildRanjenTable(BuildContext context) {
