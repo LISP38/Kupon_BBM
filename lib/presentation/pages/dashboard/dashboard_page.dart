@@ -55,13 +55,46 @@ class _DashboardPageState extends State<DashboardPage>
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
 
-    // Reset filters when changing tabs
-    _resetFilters();
+    // Terapkan filter default untuk tab yang aktif
+    final defaultJenisKupon = _tabController.index == 0 ? '1' : '2';
+    final provider = Provider.of<DashboardProvider>(context, listen: false);
+
+    // Set filter dengan mempertahankan filter yang sudah ada
+    provider.setFilter(
+      jenisKupon: defaultJenisKupon,
+      jenisBBM: _selectedJenisBBM,
+      satker: _selectedSatker,
+      nopol: _nopolController.text.isNotEmpty ? _nopolController.text : null,
+      jenisRanmor: _selectedJenisRanmor,
+      bulanTerbit: _selectedBulan,
+      tahunTerbit: _selectedTahun,
+      nomorKupon: _nomorKuponController.text.isNotEmpty
+          ? _nomorKuponController.text
+          : null,
+    );
+
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+            SizedBox(width: 16),
+            Text('Memuat data...'),
+          ],
+        ),
+        duration: Duration(seconds: 1),
+      ),
+    );
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _nomorKuponController.dispose();
+    _nopolController.dispose();
     super.dispose();
   }
 
@@ -70,16 +103,32 @@ class _DashboardPageState extends State<DashboardPage>
     super.didChangeDependencies();
     if (_firstLoad) {
       _firstLoad = false;
-      final provider = Provider.of<DashboardProvider>(context, listen: false);
-      final masterDataProvider = Provider.of<MasterDataProvider>(
-        context,
-        listen: false,
-      );
 
-      // Fetch initial data
-      provider.fetchKupons();
-      provider.fetchSatkers();
-      masterDataProvider.fetchSatkers();
+      // Schedule the initial data fetch for the next frame
+      Future.microtask(() {
+        if (!mounted) return;
+
+        final provider = Provider.of<DashboardProvider>(context, listen: false);
+        final masterDataProvider = Provider.of<MasterDataProvider>(
+          context,
+          listen: false,
+        );
+
+        // Set initial filters
+        provider.nomorKupon = null;
+        provider.satker = null;
+        provider.jenisBBM = null;
+        provider.jenisKupon = '1';
+        provider.nopol = null;
+        provider.jenisRanmor = null;
+        provider.bulanTerbit = null;
+        provider.tahunTerbit = null;
+
+        // Fetch initial data
+        provider.fetchRanjenKupons();
+        provider.fetchSatkers();
+        masterDataProvider.fetchSatkers();
+      });
     }
   }
 
@@ -94,29 +143,68 @@ class _DashboardPageState extends State<DashboardPage>
     await provider.fetchSatkers();
   }
 
-  Widget _buildRanjenContent(BuildContext context) {
-    final provider = Provider.of<DashboardProvider>(context, listen: false);
-    // Always filter for Ranjen (jenis_kupon_id = 1)
-    provider.setFilter(
-      jenisKupon: '1',
-      jenisBBM: _selectedJenisBBM,
-      // Filter lain dikosongkan agar data Ranjen pasti muncul
-      nomorKupon: null,
-      satker: null,
-      nopol: null,
-      jenisRanmor: null,
-      bulanTerbit: null,
-      tahunTerbit: null,
+  bool _isFilterVisible = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dashboard Kupon'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            tooltip: 'Import Data',
+            onPressed: () async { /* ... */ },
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.directions_car), text: 'Data Ranjen'),
+            Tab(icon: Icon(Icons.support), text: 'Data Dukungan'),
+          ],
+        ),
+      ),
+      // TAMBAHKAN FLOATING ACTION BUTTON UNTUK TOGGLE FILTER
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            _isFilterVisible = !_isFilterVisible;
+          });
+        },
+        backgroundColor: Colors.blue,
+        child: Icon(_isFilterVisible ? Icons.filter_alt_off : Icons.filter_alt),
+        tooltip: _isFilterVisible ? 'Sembunyikan Filter' : 'Tampilkan Filter',
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildRanjenContent(context),
+          _buildDukunganContent(context),
+        ],
+      ),
     );
+  }
+
+  Widget _buildRanjenContent(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSummarySection(context),
-          _buildRanjenFilterSection(context),
+          // GUNAKAN IF UNTUK MENYEMBUNYIKAN/MENAMPILKAN FILTER
+          if (_isFilterVisible) _buildRanjenFilterSection(context),
           const SizedBox(height: 16),
           Expanded(child: _buildRanjenTable(context)),
+          // TAMBAHKAN KONTROL PAGINATION
+          _buildPaginationControls(
+            currentPage: Provider.of<DashboardProvider>(context).ranjenCurrentPage,
+            totalPages: Provider.of<DashboardProvider>(context).ranjenTotalPages,
+            onPrevious: () => Provider.of<DashboardProvider>(context, listen: false).previousRanjenPage(),
+            onNext: () => Provider.of<DashboardProvider>(context, listen: false).nextRanjenPage(),
+          ),
+          const SizedBox(height: 16), // Beri jarak dengan tombol export
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton.icon(
@@ -131,28 +219,24 @@ class _DashboardPageState extends State<DashboardPage>
   }
 
   Widget _buildDukunganContent(BuildContext context) {
-    final provider = Provider.of<DashboardProvider>(context, listen: false);
-    // Always filter for Dukungan (jenis_kupon_id = 2)
-    provider.setFilter(
-      jenisKupon: '2',
-      jenisBBM: _selectedJenisBBM,
-      // Filter lain dikosongkan agar data Dukungan pasti muncul
-      nomorKupon: null,
-      satker: null,
-      nopol: null,
-      jenisRanmor: null,
-      bulanTerbit: null,
-      tahunTerbit: null,
-    );
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSummarySection(context),
-          _buildDukunganFilterSection(context),
+          // GUNAKAN IF UNTUK MENYEMBUNYIKAN/MENAMPILKAN FILTER
+          if (_isFilterVisible) _buildDukunganFilterSection(context),
           const SizedBox(height: 16),
           Expanded(child: _buildDukunganTable(context)),
+          // TAMBAHKAN KONTROL PAGINATION
+          _buildPaginationControls(
+            currentPage: Provider.of<DashboardProvider>(context).dukunganCurrentPage,
+            totalPages: Provider.of<DashboardProvider>(context).dukunganTotalPages,
+            onPrevious: () => Provider.of<DashboardProvider>(context, listen: false).previousDukunganPage(),
+            onNext: () => Provider.of<DashboardProvider>(context, listen: false).nextDukunganPage(),
+          ),
+          const SizedBox(height: 16), // Beri jarak dengan tombol export
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton.icon(
@@ -169,6 +253,11 @@ class _DashboardPageState extends State<DashboardPage>
   Widget _buildSummarySection(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
+        // Gunakan data yang tepat berdasarkan tab yang aktif
+        final activeTabKuponCount = _tabController.index == 0
+            ? provider.ranjenKupons.length
+            : provider.dukunganKupons.length;
+
         return Card(
           color: Colors.blue.shade50,
           margin: const EdgeInsets.only(bottom: 12),
@@ -177,11 +266,11 @@ class _DashboardPageState extends State<DashboardPage>
             child: Row(
               children: [
                 Text(
-                  'Total Kupon: ',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  'Total Kupon (${_tabController.index == 0 ? 'Ranjen' : 'Dukungan'}): ',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  provider.kupons.length.toString(),
+                  activeTabKuponCount.toString(),
                   style: TextStyle(
                     fontSize: 18,
                     color: Colors.blue.shade900,
@@ -225,14 +314,20 @@ class _DashboardPageState extends State<DashboardPage>
       _selectedTahun = null;
     });
 
-    // Apply empty filters to reset the view
+    // Apply default filters based on the active tab
     final provider = Provider.of<DashboardProvider>(context, listen: false);
+
+    // Reset provider filters
+    provider.resetFilters();
+
+    // Set jenis kupon based on current tab after reset
+    final defaultJenisKupon = _tabController.index == 0 ? '1' : '2';
     provider.setFilter(
-      nomorKupon: '',
+      jenisKupon: defaultJenisKupon,
+      nomorKupon: null,
       satker: null,
       jenisBBM: null,
-      jenisKupon: null,
-      nopol: '',
+      nopol: null,
       jenisRanmor: null,
       bulanTerbit: null,
       tahunTerbit: null,
@@ -346,9 +441,9 @@ class _DashboardPageState extends State<DashboardPage>
     );
   }
 
+  // Ganti fungsi _exportDataKupon yang ada dengan ini
   Future<void> _exportDataKupon() async {
     try {
-      // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -365,20 +460,44 @@ class _DashboardPageState extends State<DashboardPage>
 
       final provider = Provider.of<DashboardProvider>(context, listen: false);
 
-      if (provider.kupons.isEmpty) {
-        Navigator.of(context).pop();
+      // --- PERBAIKAN: Pastikan data dari kedua tab sudah dimuat ---
+      print('[EXPORT] Memastikan data Ranjen dan Dukungan sudah dimuat...');
+
+      // Jika data Ranjen kosong, ambil dulu
+      if (provider.ranjenKupons.isEmpty) {
+        print('[EXPORT] Data Ranjen kosong, mengambil data...');
+        await provider.fetchRanjenKupons();
+      } else {
+        print('[EXPORT] Data Ranjen sudah ada.');
+      }
+
+      // Jika data Dukungan kosong, ambil dulu
+      if (provider.dukunganKupons.isEmpty) {
+        print('[EXPORT] Data Dukungan kosong, mengambil data...');
+        await provider.fetchDukunganKupons();
+      } else {
+        print('[EXPORT] Data Dukungan sudah ada.');
+      }
+
+      print(
+        '[EXPORT] Total data yang akan diekspor: ${provider.allKuponsForExport.length}',
+      );
+
+      // Sekarang, periksa lagi apakah data gabungan benar-benar kosong
+      if (provider.allKuponsForExport.isEmpty) {
+        Navigator.of(context).pop(); // Tutup dialog loading
         _showMessage('Tidak ada data kupon untuk di-export', isError: true);
         return;
       }
 
       final success = await ExportService.exportDataKupon(
-        allKupons: provider.kupons,
+        allKupons: provider.allKuponsForExport,
         jenisBBMMap: _jenisBBMMap,
         getNopolByKendaraanId: _getNopolByKendaraanId,
         getJenisRanmorByKendaraanId: _getJenisRanmorByKendaraanId,
       );
 
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(); // Tutup dialog loading
 
       if (success) {
         _showMessage(
@@ -388,14 +507,14 @@ class _DashboardPageState extends State<DashboardPage>
         _showMessage('Export dibatalkan atau gagal', isError: true);
       }
     } catch (e) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(); // Tutup dialog loading jika terjadi error
       _showMessage('Error saat export data: $e', isError: true);
     }
   }
 
+  // Ganti fungsi _exportDataSatker yang ada dengan ini
   Future<void> _exportDataSatker() async {
     try {
-      // Show loading dialog
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -412,18 +531,37 @@ class _DashboardPageState extends State<DashboardPage>
 
       final provider = Provider.of<DashboardProvider>(context, listen: false);
 
-      if (provider.kupons.isEmpty) {
-        Navigator.of(context).pop();
+      // --- PERBAIKAN: Pastikan data dari kedua tab sudah dimuat ---
+      print(
+        '[EXPORT SATKER] Memastikan data Ranjen dan Dukungan sudah dimuat...',
+      );
+
+      if (provider.ranjenKupons.isEmpty) {
+        print('[EXPORT SATKER] Data Ranjen kosong, mengambil data...');
+        await provider.fetchRanjenKupons();
+      }
+
+      if (provider.dukunganKupons.isEmpty) {
+        print('[EXPORT SATKER] Data Dukungan kosong, mengambil data...');
+        await provider.fetchDukunganKupons();
+      }
+
+      print(
+        '[EXPORT SATKER] Total data yang akan diekspor: ${provider.allKuponsForExport.length}',
+      );
+
+      if (provider.allKuponsForExport.isEmpty) {
+        Navigator.of(context).pop(); // Tutup dialog loading
         _showMessage('Tidak ada data kupon untuk di-export', isError: true);
         return;
       }
 
       final success = await ExportService.exportDataSatker(
-        allKupons: provider.kupons,
+        allKupons: provider.allKuponsForExport,
         jenisBBMMap: _jenisBBMMap,
       );
 
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(); // Tutup dialog loading
 
       if (success) {
         _showMessage('Data Satker berhasil di-export! (REKAP.PX, REKAP.DX)');
@@ -431,7 +569,7 @@ class _DashboardPageState extends State<DashboardPage>
         _showMessage('Export dibatalkan atau gagal', isError: true);
       }
     } catch (e) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(); // Tutup dialog loading jika terjadi error
       _showMessage('Error saat export data: $e', isError: true);
     }
   }
@@ -466,14 +604,15 @@ class _DashboardPageState extends State<DashboardPage>
             tooltip: 'Import Data',
             onPressed: () async {
               await Navigator.pushNamed(context, '/import');
-              // Setelah kembali dari import, refresh data
+              // PERBAIKAN: Gunakan refreshData() untuk mempertahankan filter/tab saat ini
               if (mounted) {
                 final provider = Provider.of<DashboardProvider>(
                   context,
                   listen: false,
                 );
-                await provider.fetchSatkers();
-                await provider.fetchKupons();
+                await provider.fetchSatkers(); // Tetap refresh satker
+                await provider
+                    .refreshData(); // Gunakan metode refresh yang sudah disediakan
               }
             },
           ),
@@ -531,7 +670,7 @@ class _DashboardPageState extends State<DashboardPage>
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue: _selectedSatker,
+                    value: _selectedSatker,
                     decoration: const InputDecoration(
                       labelText: 'Satker',
                       border: OutlineInputBorder(),
@@ -546,7 +685,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue: _selectedJenisBBM,
+                    value: _selectedJenisBBM,
                     decoration: const InputDecoration(
                       labelText: 'Jenis BBM',
                       border: OutlineInputBorder(),
@@ -596,7 +735,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    initialValue: _selectedBulan,
+                    value: _selectedBulan,
                     decoration: const InputDecoration(
                       labelText: 'Bulan',
                       border: OutlineInputBorder(),
@@ -616,7 +755,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    initialValue: _selectedTahun,
+                    value: _selectedTahun,
                     decoration: const InputDecoration(
                       labelText: 'Tahun',
                       border: OutlineInputBorder(),
@@ -641,24 +780,77 @@ class _DashboardPageState extends State<DashboardPage>
               children: [
                 ElevatedButton.icon(
                   onPressed: () {
+                    final provider = Provider.of<DashboardProvider>(
+                      context,
+                      listen: false,
+                    );
                     provider.setFilter(
-                      nomorKupon: _nomorKuponController.text,
+                      nomorKupon: _nomorKuponController.text.isNotEmpty
+                          ? _nomorKuponController.text
+                          : null,
                       satker: _selectedSatker,
                       jenisBBM: _selectedJenisBBM,
                       jenisKupon: '1', // Ranjen
-                      nopol: _nopolController.text,
+                      nopol: _nopolController.text.isNotEmpty
+                          ? _nopolController.text
+                          : null,
                       jenisRanmor: _selectedJenisRanmor,
                       bulanTerbit: _selectedBulan,
                       tahunTerbit: _selectedTahun,
                     );
+
+                    // Show loading indicator
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Text('Memuat data...'),
+                          ],
+                        ),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
                   },
-                  icon: const Icon(Icons.search),
+                  icon: const Icon(Icons.filter_alt),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                  ),
                   label: const Text('Filter'),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: _resetFilters,
+                  onPressed: () {
+                    _resetFilters();
+                    // Show loading indicator
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Text('Mereset filter...'),
+                          ],
+                        ),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
                   icon: const Icon(Icons.refresh),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey,
+                    foregroundColor: Colors.white,
+                  ),
                   label: const Text('Reset Filter'),
                 ),
               ],
@@ -704,7 +896,7 @@ class _DashboardPageState extends State<DashboardPage>
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue: _selectedSatker,
+                    value: _selectedSatker,
                     decoration: const InputDecoration(
                       labelText: 'Satker',
                       border: OutlineInputBorder(),
@@ -719,7 +911,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    initialValue: _selectedJenisBBM,
+                    value: _selectedJenisBBM,
                     decoration: const InputDecoration(
                       labelText: 'Jenis BBM',
                       border: OutlineInputBorder(),
@@ -769,7 +961,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    initialValue: _selectedBulan,
+                    value: _selectedBulan,
                     decoration: const InputDecoration(
                       labelText: 'Bulan',
                       border: OutlineInputBorder(),
@@ -789,7 +981,7 @@ class _DashboardPageState extends State<DashboardPage>
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    initialValue: _selectedTahun,
+                    value: _selectedTahun,
                     decoration: const InputDecoration(
                       labelText: 'Tahun',
                       border: OutlineInputBorder(),
@@ -815,11 +1007,15 @@ class _DashboardPageState extends State<DashboardPage>
                 ElevatedButton.icon(
                   onPressed: () {
                     provider.setFilter(
-                      nomorKupon: _nomorKuponController.text,
+                      nomorKupon: _nomorKuponController.text.isNotEmpty
+                          ? _nomorKuponController.text
+                          : null,
                       satker: _selectedSatker,
                       jenisBBM: _selectedJenisBBM,
                       jenisKupon: '2', // Dukungan
-                      nopol: _nopolController.text,
+                      nopol: _nopolController.text.isNotEmpty
+                          ? _nopolController.text
+                          : null,
                       jenisRanmor: _selectedJenisRanmor,
                       bulanTerbit: _selectedBulan,
                       tahunTerbit: _selectedTahun,
@@ -842,12 +1038,11 @@ class _DashboardPageState extends State<DashboardPage>
     );
   }
 
+  // Ganti fungsi _buildRanjenTable yang ada dengan ini
   Widget _buildRanjenTable(BuildContext context) {
     return Consumer<DashboardProvider>(
       builder: (context, provider, _) {
-        final kupons = provider.kupons
-            .where((k) => k.jenisKuponId == 1)
-            .toList();
+        final kupons = provider.ranjenKupons;
         if (kupons.isEmpty) {
           return const Center(
             child: Padding(
@@ -859,20 +1054,105 @@ class _DashboardPageState extends State<DashboardPage>
             ),
           );
         }
+
+        // PERBAIKAN: Sederhanakan struktur scrolling
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('No')),
+              DataColumn(label: Text('No Kupon')),
+              DataColumn(label: Text('Satker')),
+              DataColumn(label: Text('Jenis BBM')),
+              DataColumn(label: Text('NoPol')),
+              DataColumn(label: Text('Jenis Ranmor')),
+              DataColumn(label: Text('Bulan/Tahun')),
+              DataColumn(label: Text('Kuota Sisa')),
+              DataColumn(label: Text('Status')),
+              DataColumn(label: Text('Aksi')),
+            ],
+            rows: kupons.asMap().entries.map((entry) {
+              final i = entry.key + 1;
+              final k = entry.value;
+              return DataRow(
+                cells: [
+                  DataCell(Text(i.toString())),
+                  DataCell(
+                    Text(
+                      '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
+                    ),
+                  ),
+                  DataCell(Text(k.namaSatker)),
+                  DataCell(
+                    Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString()),
+                  ),
+                  DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
+                  DataCell(Text(_getJenisRanmorByKendaraanId(k.kendaraanId))),
+                  DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
+                  DataCell(Text('${k.kuotaSisa.toStringAsFixed(2)} L')),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: k.status == 'Aktif' ? Colors.green : Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        k.status,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  DataCell(
+                    IconButton(
+                      icon: const Icon(Icons.info_outline, color: Colors.blue),
+                      tooltip: 'Lihat Detail Kupon',
+                      onPressed: () => _showKuponDetailDialog(context, k),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  // Ganti fungsi _buildDukunganTable yang ada dengan ini
+  Widget _buildDukunganTable(BuildContext context) {
+    return Consumer<DashboardProvider>(
+      builder: (context, provider, _) {
+        final kupons = provider.dukunganKupons;
+        if (kupons.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: Text(
+                'Data Dukungan tidak ditemukan',
+                style: TextStyle(fontSize: 18),
+              ),
+            ),
+          );
+        }
+
+        // PERBAIKAN: Sederhanakan struktur scrolling dan tetap gunakan Card
+        return Card(
           child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: DataTable(
               columns: const [
-                DataColumn(label: Text('No')),
-                DataColumn(label: Text('No Kupon')),
+                DataColumn(label: Text('No.')),
+                DataColumn(label: Text('Nomor Kupon')),
                 DataColumn(label: Text('Satker')),
                 DataColumn(label: Text('Jenis BBM')),
-                DataColumn(label: Text('NoPol')),
-                DataColumn(label: Text('Jenis Ranmor')),
                 DataColumn(label: Text('Bulan/Tahun')),
                 DataColumn(label: Text('Kuota Sisa')),
                 DataColumn(label: Text('Status')),
+                DataColumn(label: Text('Aksi')),
               ],
               rows: kupons.asMap().entries.map((entry) {
                 final i = entry.key + 1;
@@ -884,7 +1164,6 @@ class _DashboardPageState extends State<DashboardPage>
                       Text(
                         '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
                       ),
-                      onTap: () => _showKuponDetailDialog(context, k),
                     ),
                     DataCell(Text(k.namaSatker)),
                     DataCell(
@@ -892,8 +1171,6 @@ class _DashboardPageState extends State<DashboardPage>
                         _jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString(),
                       ),
                     ),
-                    DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
-                    DataCell(Text(_getJenisRanmorByKendaraanId(k.kendaraanId))),
                     DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
                     DataCell(Text('${k.kuotaSisa.toStringAsFixed(2)} L')),
                     DataCell(
@@ -914,94 +1191,19 @@ class _DashboardPageState extends State<DashboardPage>
                         ),
                       ),
                     ),
+                    DataCell(
+                      IconButton(
+                        icon: const Icon(
+                          Icons.info_outline,
+                          color: Colors.blue,
+                        ),
+                        tooltip: 'Lihat Detail Kupon',
+                        onPressed: () => _showKuponDetailDialog(context, k),
+                      ),
+                    ),
                   ],
                 );
               }).toList(),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDukunganTable(BuildContext context) {
-    return Consumer<DashboardProvider>(
-      builder: (context, provider, _) {
-        final kupons = provider.kupons
-            .where((k) => k.jenisKuponId == 2)
-            .toList();
-        if (kupons.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: Text(
-                'Data Dukungan tidak ditemukan',
-                style: TextStyle(fontSize: 18),
-              ),
-            ),
-          );
-        }
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('No.')),
-                    DataColumn(label: Text('Nomor Kupon')),
-                    DataColumn(label: Text('Satker')),
-                    DataColumn(label: Text('Jenis BBM')),
-                    DataColumn(label: Text('Bulan/Tahun')),
-                    DataColumn(label: Text('Kuota Sisa')),
-                    DataColumn(label: Text('Status')),
-                  ],
-                  rows: kupons.asMap().entries.map((entry) {
-                    final i = entry.key + 1;
-                    final k = entry.value;
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(i.toString())),
-                        DataCell(
-                          Text(
-                            '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
-                          ),
-                          onTap: () => _showKuponDetailDialog(context, k),
-                        ),
-                        DataCell(Text(k.namaSatker)),
-                        DataCell(
-                          Text(
-                            _jenisBBMMap[k.jenisBbmId] ??
-                                k.jenisBbmId.toString(),
-                          ),
-                        ),
-                        DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
-                        DataCell(Text('${k.kuotaSisa.toStringAsFixed(2)} L')),
-                        DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: k.status == 'Aktif'
-                                  ? Colors.green
-                                  : Colors.red,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              k.status,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
-                ),
-              ),
             ),
           ),
         );
@@ -1030,11 +1232,9 @@ class _DashboardPageState extends State<DashboardPage>
     BuildContext context,
     KuponEntity kupon,
   ) async {
-    // Calculate dates
     final tanggalTerbit = DateTime(kupon.tahunTerbit, kupon.bulanTerbit, 1);
     final tanggalKadaluarsa = tanggalTerbit.add(const Duration(days: 60));
 
-    // Get any transactions for this coupon
     final transaksiProvider = Provider.of<TransaksiProvider>(
       context,
       listen: false,
