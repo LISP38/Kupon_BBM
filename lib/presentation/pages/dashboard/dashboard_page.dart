@@ -143,49 +143,6 @@ class _DashboardPageState extends State<DashboardPage>
     await provider.fetchSatkers();
   }
 
-  bool _isFilterVisible = true;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard Kupon'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.upload_file),
-            tooltip: 'Import Data',
-            onPressed: () async { /* ... */ },
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.directions_car), text: 'Data Ranjen'),
-            Tab(icon: Icon(Icons.support), text: 'Data Dukungan'),
-          ],
-        ),
-      ),
-      // TAMBAHKAN FLOATING ACTION BUTTON UNTUK TOGGLE FILTER
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            _isFilterVisible = !_isFilterVisible;
-          });
-        },
-        backgroundColor: Colors.blue,
-        child: Icon(_isFilterVisible ? Icons.filter_alt_off : Icons.filter_alt),
-        tooltip: _isFilterVisible ? 'Sembunyikan Filter' : 'Tampilkan Filter',
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildRanjenContent(context),
-          _buildDukunganContent(context),
-        ],
-      ),
-    );
-  }
-
   Widget _buildRanjenContent(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -193,18 +150,9 @@ class _DashboardPageState extends State<DashboardPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSummarySection(context),
-          // GUNAKAN IF UNTUK MENYEMBUNYIKAN/MENAMPILKAN FILTER
-          if (_isFilterVisible) _buildRanjenFilterSection(context),
+          _buildRanjenFilterSection(context),
           const SizedBox(height: 16),
           Expanded(child: _buildRanjenTable(context)),
-          // TAMBAHKAN KONTROL PAGINATION
-          _buildPaginationControls(
-            currentPage: Provider.of<DashboardProvider>(context).ranjenCurrentPage,
-            totalPages: Provider.of<DashboardProvider>(context).ranjenTotalPages,
-            onPrevious: () => Provider.of<DashboardProvider>(context, listen: false).previousRanjenPage(),
-            onNext: () => Provider.of<DashboardProvider>(context, listen: false).nextRanjenPage(),
-          ),
-          const SizedBox(height: 16), // Beri jarak dengan tombol export
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton.icon(
@@ -225,18 +173,9 @@ class _DashboardPageState extends State<DashboardPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSummarySection(context),
-          // GUNAKAN IF UNTUK MENYEMBUNYIKAN/MENAMPILKAN FILTER
-          if (_isFilterVisible) _buildDukunganFilterSection(context),
+          _buildDukunganFilterSection(context),
           const SizedBox(height: 16),
           Expanded(child: _buildDukunganTable(context)),
-          // TAMBAHKAN KONTROL PAGINATION
-          _buildPaginationControls(
-            currentPage: Provider.of<DashboardProvider>(context).dukunganCurrentPage,
-            totalPages: Provider.of<DashboardProvider>(context).dukunganTotalPages,
-            onPrevious: () => Provider.of<DashboardProvider>(context, listen: false).previousDukunganPage(),
-            onNext: () => Provider.of<DashboardProvider>(context, listen: false).nextDukunganPage(),
-          ),
-          const SizedBox(height: 16), // Beri jarak dengan tombol export
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton.icon(
