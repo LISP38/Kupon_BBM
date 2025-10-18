@@ -37,9 +37,9 @@ Future<void> initializeDependencies() async {
   // Validators
   getIt.registerLazySingleton<KuponValidator>(() => KuponValidator());
 
-  // Excel datasource
+  // Excel datasource - harus didaftarkan setelah validator
   getIt.registerLazySingleton<ExcelDatasource>(
-    () => ExcelDatasource(getIt<DatabaseDatasource>()),
+    () => ExcelDatasource(getIt<KuponValidator>(), getIt<DatabaseDatasource>()),
   );
 
   // Enhanced Import Service

@@ -1,10 +1,90 @@
 import 'dart:io';
 import 'package:kupon_bbm_app/data/models/kupon_model.dart';
-import 'package:kupon_bbm_app/data/models/kendaraan_model.dart';
+
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseDatasource {
+  /// Batch insert kupons to fact_kupon table
+  Future<void> insertKupons(List<KuponModel> kupons) async {
+    final db = await database;
+    final batch = db.batch();
+  // Ambil mapping satker dari master
+  final satkerRows = await db.query('dim_satker');
+    final satkerMap = <String, int>{};
+    for (final row in satkerRows) {
+      final name = (row['nama_satker'] as String).trim().toLowerCase();
+      satkerMap[name] = row['satker_id'] as int;
+    }
+    for (final k in kupons) {
+      // Satker null/empty diisi 'CADANGAN' (huruf besar)
+      final namaSatker = (k.namaSatker.trim().isEmpty)
+          ? 'CADANGAN'
+          : k.namaSatker.trim().toUpperCase();
+      final namaSatkerLower = namaSatker.toLowerCase();
+      int? satkerId = satkerMap[namaSatkerLower];
+      if (satkerId == null) {
+        final existing = await db.query(
+          'dim_satker',
+          where: 'LOWER(TRIM(nama_satker)) = ?',
+          whereArgs: [namaSatkerLower],
+        );
+        if (existing.isNotEmpty) {
+          satkerId = existing.first['satker_id'] as int;
+          satkerMap[namaSatkerLower] = satkerId;
+        } else {
+          satkerId = await db.insert('dim_satker', {
+            'nama_satker': namaSatker,
+          });
+          satkerMap[namaSatkerLower] = satkerId;
+          print('INFO: Satker baru ditambahkan: "$namaSatker" dengan id $satkerId');
+        }
+      }
+
+      // kendaraan_id: null jika jenisKuponId == 2 (DUKUNGAN)
+      int? kendaraanId;
+      if (k.jenisKuponId == 2) {
+        kendaraanId = null;
+      } else if (k.kendaraanId != null) {
+        // Check if kendaraan exists in dim_kendaraan
+        final kendaraanRow = await db.query(
+          'dim_kendaraan',
+          where: 'kendaraan_id = ?',
+          whereArgs: [k.kendaraanId],
+          limit: 1,
+        );
+        if (kendaraanRow.isNotEmpty) {
+          kendaraanId = k.kendaraanId;
+        } else {
+          // If not found, do not insert here (should already be handled in _parseRow)
+          kendaraanId = null;
+        }
+      }
+
+      final jenisBbmId = k.jenisBbmId;
+      final jenisKuponId = k.jenisKuponId;
+      batch.insert('fact_kupon', {
+        'nomor_kupon': k.nomorKupon,
+        'kendaraan_id': kendaraanId,
+        'jenis_bbm_id': jenisBbmId,
+        'jenis_kupon_id': jenisKuponId,
+        'bulan_terbit': k.bulanTerbit,
+        'tahun_terbit': k.tahunTerbit,
+        'tanggal_mulai': k.tanggalMulai,
+        'tanggal_sampai': k.tanggalSampai,
+        'kuota_awal': k.kuotaAwal,
+        'kuota_sisa': k.kuotaSisa,
+        'satker_id': satkerId,
+        'nama_satker': namaSatker,
+        'status': k.status,
+        'created_at': k.createdAt,
+        'updated_at': k.updatedAt,
+        'is_deleted': k.isDeleted,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+    print('DEBUG: Batch insertKupons completed: ${kupons.length} kupons');
+  }
   Database? _database;
   final String _dbFileName = 'kupon_bbm.db';
 
@@ -32,7 +112,7 @@ class DatabaseDatasource {
     return await dbFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 5,
+        version: 4,
         onConfigure: (db) async {
           print('DEBUG: onConfigure called');
           await db.execute('PRAGMA foreign_keys = ON;');
@@ -45,7 +125,9 @@ class DatabaseDatasource {
           print('DEBUG: onUpgrade called from $oldVersion to $newVersion');
           if (oldVersion < 2) {
             // Remove UNIQUE constraint from nomor_kupon
-            await db.execute('CREATE TABLE fact_kupon_temp AS SELECT * FROM fact_kupon');
+            await db.execute(
+              'CREATE TABLE fact_kupon_temp AS SELECT * FROM fact_kupon',
+            );
             await db.execute('DROP TABLE fact_kupon');
             await db.execute('''
               CREATE TABLE fact_kupon (
@@ -71,19 +153,66 @@ class DatabaseDatasource {
                 FOREIGN KEY (jenis_kupon_id) REFERENCES dim_jenis_kupon(jenis_kupon_id)
               );
             ''');
-            await db.execute('INSERT INTO fact_kupon SELECT * FROM fact_kupon_temp');
+            await db.execute(
+              'INSERT INTO fact_kupon SELECT * FROM fact_kupon_temp',
+            );
             await db.execute('DROP TABLE fact_kupon_temp');
             print('DEBUG: UNIQUE constraint removed from nomor_kupon');
           }
 
           if (oldVersion < 3) {
-            print('DEBUG: Version 3 migration skipped');
+            // Add import history tracking tables
+            await db.execute('''
+              CREATE TABLE import_history (
+                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                import_type TEXT NOT NULL,
+                import_date TEXT NOT NULL,
+                expected_period TEXT,
+                total_kupons INTEGER NOT NULL,
+                success_count INTEGER DEFAULT 0,
+                error_count INTEGER DEFAULT 0,
+                duplicate_count INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'PROCESSING',
+                error_message TEXT,
+                metadata TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+              );
+            ''');
+
+            await db.execute('''
+              CREATE TABLE import_details (
+                detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                kupon_data TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                action TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
+                  ON DELETE CASCADE
+              );
+            ''');
+
+            // Add indexes for import history
+            await db.execute(
+              'CREATE INDEX idx_import_history_date ON import_history(import_date);',
+            );
+            await db.execute(
+              'CREATE INDEX idx_import_history_status ON import_history(status);',
+            );
+            await db.execute(
+              'CREATE INDEX idx_import_details_session ON import_details(session_id);',
+            );
+
+            print('DEBUG: Import history tables created');
           }
 
           if (oldVersion < 4) {
             // Make kendaraan_id nullable to support DUKUNGAN kupon
             print('DEBUG: Making kendaraan_id nullable in fact_kupon');
-
+            
             // Create new table with nullable kendaraan_id
             await db.execute('''
               CREATE TABLE fact_kupon_new (
@@ -112,27 +241,20 @@ class DatabaseDatasource {
                   ON DELETE RESTRICT ON UPDATE CASCADE
               );
             ''');
-
+            
             // Copy data from old table
             await db.execute('''
               INSERT INTO fact_kupon_new 
               SELECT * FROM fact_kupon;
             ''');
-
+            
             // Drop old table and rename
             await db.execute('DROP TABLE fact_kupon');
-            await db.execute('ALTER TABLE fact_kupon_new RENAME TO fact_kupon');
-
+            await db.execute(
+              'ALTER TABLE fact_kupon_new RENAME TO fact_kupon',
+            );
+            
             print('DEBUG: fact_kupon table migrated with nullable kendaraan_id');
-          }
-
-          if (oldVersion < 5) {
-            print('DEBUG: Adding unique index to fact_kupon');
-            await db.execute('''
-              CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_kupon_unique_key 
-              ON fact_kupon (nomor_kupon, jenis_kupon_id, satker_id, bulan_terbit, tahun_terbit) 
-              WHERE is_deleted = 0;
-            ''');
           }
         },
       ),
@@ -143,13 +265,15 @@ class DatabaseDatasource {
     print('DEBUG: _createDB called');
     final batch = db.batch();
 
-    // Dimension tables
+    // ---- Dimension tables ----
+    // CREATE TABLE dulu, baru INSERT default data
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_satker (
         satker_id INTEGER PRIMARY KEY,
         nama_satker TEXT NOT NULL
       );
     ''');
+    // Note: Satker data will be populated in _seedMasterData
 
     batch.execute('''
       CREATE TABLE IF NOT EXISTS dim_jenis_bbm (
@@ -180,7 +304,7 @@ class DatabaseDatasource {
       );
     ''');
 
-    // Fact tables
+    // ---- Fact tables ----
     batch.execute('''
       CREATE TABLE IF NOT EXISTS fact_kupon (
         kupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,17 +350,62 @@ class DatabaseDatasource {
       );
     ''');
 
-    // Indexes
-    batch.execute('CREATE INDEX IF NOT EXISTS idx_kendaraan_satker ON dim_kendaraan(satker_id);');
-    batch.execute('CREATE INDEX IF NOT EXISTS idx_kupon_kendaraan ON fact_kupon(kendaraan_id);');
-    batch.execute('CREATE INDEX IF NOT EXISTS idx_kupon_status ON fact_kupon(status);');
-    batch.execute('CREATE INDEX IF NOT EXISTS idx_transaksi_kupon ON fact_transaksi(kupon_id);');
+    // Import history tables
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS import_history (
+        session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT NOT NULL,
+        import_type TEXT NOT NULL,
+        import_date TEXT NOT NULL,
+        expected_period TEXT,
+        total_kupons INTEGER NOT NULL,
+        success_count INTEGER DEFAULT 0,
+        error_count INTEGER DEFAULT 0,
+        duplicate_count INTEGER DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'PROCESSING',
+        error_message TEXT,
+        metadata TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    ''');
 
     batch.execute('''
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_kupon_unique_key 
-      ON fact_kupon (nomor_kupon, jenis_kupon_id, satker_id, bulan_terbit, tahun_terbit) 
-      WHERE is_deleted = 0;
+      CREATE TABLE IF NOT EXISTS import_details (
+        detail_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        kupon_data TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error_message TEXT,
+        action TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES import_history(session_id) 
+          ON DELETE CASCADE
+      );
     ''');
+
+    // Indexes
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_kendaraan_satker ON dim_kendaraan(satker_id);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_kupon_kendaraan ON fact_kupon(kendaraan_id);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_kupon_status ON fact_kupon(status);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_transaksi_kupon ON fact_transaksi(kupon_id);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_history_date ON import_history(import_date);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_history_status ON import_history(status);',
+    );
+    batch.execute(
+      'CREATE INDEX IF NOT EXISTS idx_import_details_session ON import_details(session_id);',
+    );
 
     await batch.commit(noResult: true);
     print('DEBUG: Tables created, seeding master data...');
@@ -252,7 +421,6 @@ class DatabaseDatasource {
         'jenis_bbm_id': 1,
         'nama_jenis_bbm': 'Pertamax',
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      
       await txn.insert('dim_jenis_bbm', {
         'jenis_bbm_id': 2,
         'nama_jenis_bbm': 'Pertamina Dex',
@@ -263,7 +431,6 @@ class DatabaseDatasource {
         'jenis_kupon_id': 1,
         'nama_jenis_kupon': 'Ranjen',
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      
       await txn.insert('dim_jenis_kupon', {
         'jenis_kupon_id': 2,
         'nama_jenis_kupon': 'Dukungan',
@@ -272,182 +439,6 @@ class DatabaseDatasource {
       // dim_satker: now fully dynamic, no hardcoded list
     });
     print('DEBUG: _seedMasterData finished');
-  }
-
-  // PERBAIKAN: Cek duplikat sebelum insert
-  Future<void> insertKupons(List<KuponModel> kupons) async {
-    final db = await database;
-    
-    int insertedCount = 0;
-    int skippedCount = 0;
-    
-    // Ambil mapping satker dari master
-    final satkerRows = await db.query('dim_satker');
-    final satkerMap = <String, int>{};
-    for (final row in satkerRows) {
-      final name = (row['nama_satker'] as String)
-          .trim()
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '')
-          .toUpperCase();
-      satkerMap[name] = row['satker_id'] as int;
-    }
-
-    // Insert satu per satu dengan validasi duplikat
-    for (final k in kupons) {
-      try {
-        // Normalisasi nama satker
-        final namaSatkerRaw = k.namaSatker;
-        final namaSatker = (namaSatkerRaw.trim().isEmpty)
-            ? 'CADANGAN'
-            : namaSatkerRaw
-                .trim()
-                .replaceAll(RegExp(r'\s+'), ' ')
-                .replaceAll(RegExp(r'[\x00-\x1F\x7F]'), '')
-                .toUpperCase();
-        
-        // Cari di map dengan normalisasi yang sama
-        int? satkerId = satkerMap[namaSatker];
-        
-        if (satkerId == null) {
-          // Gunakan normalisasi yang sama saat mencari di database
-          final existing = await db.query(
-            'dim_satker',
-            where: 'UPPER(TRIM(nama_satker)) = ?',
-            whereArgs: [namaSatker],
-          );
-          if (existing.isNotEmpty) {
-            satkerId = existing.first['satker_id'] as int;
-            satkerMap[namaSatker] = satkerId;
-          } else {
-            satkerId = await db.insert('dim_satker', {'nama_satker': namaSatker});
-            satkerMap[namaSatker] = satkerId;
-            print('INFO: Satker baru ditambahkan: "$namaSatker" dengan id $satkerId');
-          }
-        }
-
-        // PERBAIKAN: Cek duplikat berdasarkan unique index
-        final duplicateCheck = await db.query(
-          'fact_kupon',
-          where: '''
-            nomor_kupon = ? AND 
-            jenis_kupon_id = ? AND 
-            satker_id = ? AND 
-            bulan_terbit = ? AND 
-            tahun_terbit = ? AND
-            is_deleted = 0
-          ''',
-          whereArgs: [
-            k.nomorKupon,
-            k.jenisKuponId,
-            satkerId,
-            k.bulanTerbit,
-            k.tahunTerbit,
-          ],
-          limit: 1,
-        );
-
-        if (duplicateCheck.isNotEmpty) {
-          skippedCount++;
-          print('SKIP: Kupon ${k.nomorKupon} sudah ada di database (duplikat)');
-          continue;
-        }
-
-        // kendaraan_id: null jika jenisKuponId == 2 (DUKUNGAN)
-        int? kendaraanId;
-        if (k.jenisKuponId == 2) {
-          kendaraanId = null;
-        } else if (k.kendaraanId != null) {
-          // Check if kendaraan exists in dim_kendaraan
-          final kendaraanRow = await db.query(
-            'dim_kendaraan',
-            where: 'kendaraan_id = ?',
-            whereArgs: [k.kendaraanId],
-            limit: 1,
-          );
-          if (kendaraanRow.isNotEmpty) {
-            kendaraanId = k.kendaraanId;
-          } else {
-            kendaraanId = null;
-          }
-        }
-
-        final jenisBbmId = k.jenisBbmId;
-        final jenisKuponId = k.jenisKuponId;
-        
-        // Insert kupon
-        final insertedId = await db.insert('fact_kupon', {
-          'nomor_kupon': k.nomorKupon,
-          'kendaraan_id': kendaraanId,
-          'jenis_bbm_id': jenisBbmId,
-          'jenis_kupon_id': jenisKuponId,
-          'bulan_terbit': k.bulanTerbit,
-          'tahun_terbit': k.tahunTerbit,
-          'tanggal_mulai': k.tanggalMulai,
-          'tanggal_sampai': k.tanggalSampai,
-          'kuota_awal': k.kuotaAwal,
-          'kuota_sisa': k.kuotaSisa,
-          'satker_id': satkerId,
-          'nama_satker': namaSatker,
-          'status': k.status,
-          'created_at': k.createdAt,
-          'updated_at': k.updatedAt,
-          'is_deleted': k.isDeleted,
-        });
-        
-        if (insertedId > 0) {
-          insertedCount++;
-        }
-      } catch (e) {
-        if (e.toString().contains('UNIQUE constraint failed')) {
-          skippedCount++;
-          print('SKIP: Kupon ${k.nomorKupon} melanggar constraint unik (duplikat)');
-        } else {
-          print('ERROR: Failed to insert kupon ${k.nomorKupon}: ${e.toString()}');
-          rethrow;
-        }
-      }
-    }
-    
-    print('DEBUG: InsertKupons completed - Inserted: $insertedCount, Skipped: $skippedCount, Total attempted: ${kupons.length}');
-  }
-
-  // Metode insertKendaraans tanpa batch processing
-  Future<void> insertKendaraans(List<KendaraanModel> kendaraans) async {
-    final db = await database;
-    
-    int insertedCount = 0;
-    int skippedCount = 0;
-    
-    // Insert satu per satu
-    for (final k in kendaraans) {
-      try {
-        final insertedId = await db.insert('dim_kendaraan', {
-          'satker_id': k.satkerId,
-          'jenis_ranmor': k.jenisRanmor,
-          'no_pol_kode': k.noPolKode,
-          'no_pol_nomor': k.noPolNomor,
-          'status_aktif': k.statusAktif,
-          'created_at': k.createdAt,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-        
-        if (insertedId > 0) {
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
-      } catch (e) {
-        if (e.toString().contains('UNIQUE constraint failed')) {
-          skippedCount++;
-          print('SKIP: Kendaraan ${k.noPolKode} ${k.noPolNomor} sudah ada (duplikat)');
-        } else {
-          print('ERROR: Failed to insert kendaraan ${k.noPolKode} ${k.noPolNomor}: ${e.toString()}');
-          rethrow;
-        }
-      }
-    }
-    
-    print('DEBUG: InsertKendaraans completed - Inserted: $insertedCount, Skipped: $skippedCount, Total attempted: ${kendaraans.length}');
   }
 
   Future<void> close() async {
