@@ -150,13 +150,13 @@ class _DashboardPageState extends State<DashboardPage>
 
   Widget _buildRanjenContent(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // _buildSummarySection(context),
           _buildRanjenFilterSection(context),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Expanded(child: _buildRanjenTable(context)),
           const SizedBox(height: 8),
           _buildPaginationControls(context, true),
@@ -176,13 +176,13 @@ class _DashboardPageState extends State<DashboardPage>
 
   Widget _buildDukunganContent(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // _buildSummarySection(context),
           _buildDukunganFilterSection(context),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Expanded(child: _buildDukunganTable(context)),
           const SizedBox(height: 8),
           _buildPaginationControls(context, false),
@@ -1028,70 +1028,74 @@ class _DashboardPageState extends State<DashboardPage>
         // PERBAIKAN: Vertical scroll untuk baris, horizontal scroll untuk kolom lebar
         return Card(
           elevation: 2,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.vertical,
+          margin: EdgeInsets.zero,
+          child: SizedBox(
+            width: double.infinity,
             child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columnSpacing: 24,
-                headingRowColor: WidgetStateProperty.all(Colors.blue.shade50),
-              columns: const [
-                DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('No Kupon', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Satker', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Jenis BBM', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('NoPol', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Jenis Ranmor', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Bulan/Tahun', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Kuota Sisa', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-                DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
-              ],
-              rows: kupons.asMap().entries.map((entry) {
-                final i = startIndex + entry.key + 1;
-                final k = entry.value;
-                return DataRow(
-                  cells: [
-                    DataCell(Text(i.toString())),
-                    DataCell(
-                      Text(
-                        '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
-                      ),
-                    ),
-                    DataCell(Text(k.namaSatker)),
-                    DataCell(
-                      Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString()),
-                    ),
-                    DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
-                    DataCell(Text(_getJenisRanmorByKendaraanId(k.kendaraanId))),
-                    DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
-                    DataCell(Text('${k.kuotaSisa.toStringAsFixed(2)} L')),
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: k.status == 'Aktif' ? Colors.green : Colors.red,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          k.status,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ),
-                    DataCell(
-                      IconButton(
-                        icon: const Icon(Icons.info_outline, color: Colors.blue),
-                        tooltip: 'Lihat Detail Kupon',
-                        onPressed: () => _showKuponDetailDialog(context, k),
-                      ),
-                    ),
+              scrollDirection: Axis.vertical,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 24,
+                  headingRowColor: WidgetStateProperty.all(Colors.blue.shade50),
+                  columns: const [
+                    DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('No Kupon', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Satker', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Jenis BBM', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('NoPol', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Jenis Ranmor', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Bulan/Tahun', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Kuota Sisa', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Aksi', style: TextStyle(fontWeight: FontWeight.bold))),
                   ],
-                );
-              }).toList(),
+                  rows: kupons.asMap().entries.map((entry) {
+                    final i = startIndex + entry.key + 1;
+                    final k = entry.value;
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(i.toString())),
+                        DataCell(
+                          Text(
+                            '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/LOGISTIK',
+                          ),
+                        ),
+                        DataCell(Text(k.namaSatker)),
+                        DataCell(
+                          Text(_jenisBBMMap[k.jenisBbmId] ?? k.jenisBbmId.toString()),
+                        ),
+                        DataCell(Text(_getNopolByKendaraanId(k.kendaraanId))),
+                        DataCell(Text(_getJenisRanmorByKendaraanId(k.kendaraanId))),
+                        DataCell(Text('${k.bulanTerbit}/${k.tahunTerbit}')),
+                        DataCell(Text('${k.kuotaSisa.toStringAsFixed(2)} L')),
+                        DataCell(
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: k.status == 'Aktif' ? Colors.green : Colors.red,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              k.status,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.info_outline, color: Colors.blue),
+                            tooltip: 'Lihat Detail Kupon',
+                            onPressed: () => _showKuponDetailDialog(context, k),
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
               ),
             ),
           ),

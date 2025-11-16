@@ -8,6 +8,7 @@ import '../../providers/transaksi_provider.dart';
 import '../../providers/dashboard_provider.dart';
 import '../../../data/models/transaksi_model.dart';
 import '../../../domain/entities/transaksi_entity.dart';
+import '../../../domain/entities/kupon_entity.dart';
 import '../../../domain/repositories/kendaraan_repository.dart';
 import '../../../core/di/dependency_injection.dart';
 import 'show_detail_transaksi_dialog.dart';
@@ -23,11 +24,169 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
   void _navigateToTransaksiForm({
     required int jenisKuponId,
     required int jenisBbmId,
-  }) {
-    // TODO: Implement navigation to transaction form, passing jenisKuponId and jenisBbmId
-    // Example: Navigator.push(...)
-    print(
-      'Navigate to form: jenisKuponId=$jenisKuponId, jenisBbmId=$jenisBbmId',
+  }) async {
+    final dashboardProvider = Provider.of<DashboardProvider>(
+      context,
+      listen: false,
+    );
+    final transaksiProvider = Provider.of<TransaksiProvider>(
+      context,
+      listen: false,
+    );
+
+    // Filter kuponList sesuai parameter yang diberikan
+    final List kuponList = dashboardProvider.kuponList
+        .where((k) => k.jenisKuponId == jenisKuponId && k.jenisBbmId == jenisBbmId)
+        .toList();
+
+    final Map<int, String> jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
+
+    final List<String> kuponOptions = kuponList
+        .map((k) =>
+            '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/${jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId} (${k.kuotaSisa.toStringAsFixed(0)} L)')
+        .toList();
+
+    final formKey = GlobalKey<FormState>();
+    final tanggalController = TextEditingController();
+    String? selectedKuponString;
+    double? jumlahLiter;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Tambah Transaksi'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: tanggalController,
+                  decoration: const InputDecoration(
+                    labelText: 'Tanggal',
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
+                  validator: (value) => value == null || value.isEmpty
+                      ? 'Pilih tanggal transaksi'
+                      : null,
+                  readOnly: true,
+                  onTap: () async {
+                    final DateTime? pickedDate = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                    );
+                    if (pickedDate != null) {
+                      tanggalController.text = DateFormat('yyyy-MM-dd').format(pickedDate);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Autocomplete<String>(
+                  optionsBuilder: (TextEditingValue textEditingValue) {
+                    if (textEditingValue.text.isEmpty) return kuponOptions;
+                    return kuponOptions.where((option) {
+                      final nomor = option.split('/')[0];
+                      return nomor.startsWith(textEditingValue.text);
+                    });
+                  },
+                  onSelected: (value) {
+                    selectedKuponString = value;
+                  },
+                  fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                    return TextFormField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      decoration: const InputDecoration(labelText: 'Nomor Kupon'),
+                      validator: (value) => value == null || value.isEmpty ? 'Pilih nomor kupon' : null,
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Jumlah Liter'),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) {
+                    jumlahLiter = double.tryParse(value);
+                  },
+                  validator: (value) => value == null || value.isEmpty ? 'Masukkan jumlah liter' : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Batal')),
+            ElevatedButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+                KuponEntity? kupon;
+                for (final k in kuponList) {
+                  final jenisKuponNama = jenisKuponMap[k.jenisKuponId] ?? k.jenisKuponId;
+                  final formatLengkap = '${k.nomorKupon}/${k.bulanTerbit}/${k.tahunTerbit}/${k.namaSatker}/$jenisKuponNama (${k.kuotaSisa.toStringAsFixed(0)} L)';
+                  if (formatLengkap == selectedKuponString) {
+                    kupon = k;
+                    break;
+                  }
+                }
+                if (kupon == null) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kupon tidak ditemukan')));
+                  }
+                  return;
+                }
+
+                if (kupon.kuotaSisa < (jumlahLiter ?? 0)) {
+                  final lanjut = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx2) {
+                      return AlertDialog(
+                        title: const Text('Konfirmasi'),
+                        content: Text('Jumlah liter melebihi kuota sisa (${kupon!.kuotaSisa} L tersisa). Apakah tetap ingin melanjutkan?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(ctx2).pop(false), child: const Text('Batal')),
+                          ElevatedButton(onPressed: () => Navigator.of(ctx2).pop(true), child: const Text('Lanjutkan')),
+                        ],
+                      );
+                    },
+                  );
+                  if (lanjut != true) return;
+                }
+
+                final transaksiBaru = TransaksiModel(
+                  transaksiId: 0,
+                  kuponId: kupon.kuponId,
+                  nomorKupon: kupon.nomorKupon,
+                  namaSatker: kupon.namaSatker,
+                  jenisBbmId: jenisBbmId,
+                  jenisKuponId: jenisKuponId,
+                  tanggalTransaksi: tanggalController.text,
+                  jumlahLiter: jumlahLiter ?? 0,
+                  createdAt: DateTime.now().toIso8601String(),
+                  updatedAt: DateTime.now().toIso8601String(),
+                  isDeleted: 0,
+                  status: 'pending',
+                );
+
+                try {
+                  await transaksiProvider.addTransaksi(transaksiBaru);
+                  await dashboardProvider.fetchKupons();
+                  if (mounted) {
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaksi berhasil disimpan')));
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal menyimpan transaksi: $e')));
+                  }
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -598,13 +757,14 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
 
       // Write data rows
       var rowIndex = 1;
+      final jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
       for (final t in transaksi) {
         var row = [
           t.tanggalTransaksi,
           t.nomorKupon,
           t.namaSatker,
           _jenisBBMMap[t.jenisBbmId] ?? 'Unknown',
-          'RANJEN', // Default jenis kupon
+          jenisKuponMap[t.jenisKuponId] ?? 'RANJEN',
           t.jumlahLiter.toString(),
         ];
 
@@ -943,159 +1103,195 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Data Transaksi')),
-      body: Column(
-        children: [
-          _buildFilterSection(),
-          // Transaksi Table Section
-          Expanded(
-            flex: 2,
-            child: Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Data Transaksi'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Transaksi'),
+              Tab(text: 'Kupon Minus'),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            // Filters remain above tabs
+            _buildFilterSection(),
+            Expanded(
+              child: TabBarView(
                 children: [
+                  // Transaksi tab
                   Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Data Transaksi BBM',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: _exportTransaksiToExcel,
-                              icon: const Icon(Icons.download),
-                              label: const Text('Export'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Search bar
-                        TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            hintText: 'Cari nomor kupon...',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      setState(() {
-                                        _searchController.clear();
-                                        _searchQuery = '';
-                                        _transaksiCurrentPage = 0;
-                                      });
-                                    },
-                                  )
-                                : null,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
+                    padding: const EdgeInsets.all(8.0),
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Data Transaksi BBM',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    ElevatedButton.icon(
+                                      onPressed: _exportTransaksiToExcel,
+                                      icon: const Icon(Icons.download),
+                                      label: const Text('Export'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                // Search bar and action buttons
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _searchController,
+                                        decoration: InputDecoration(
+                                          hintText: 'Cari nomor kupon...',
+                                          prefixIcon: const Icon(Icons.search),
+                                          suffixIcon: _searchQuery.isNotEmpty
+                                              ? IconButton(
+                                                  icon: const Icon(Icons.clear),
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _searchController.clear();
+                                                      _searchQuery = '';
+                                                      _transaksiCurrentPage = 0;
+                                                    });
+                                                  },
+                                                )
+                                              : null,
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          contentPadding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 12,
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _searchQuery = value;
+                                            _transaksiCurrentPage = 0;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    // Add transaksi buttons as a compact wrap
+                                    Wrap(
+                                      spacing: 8,
+                                      children: [
+                                        ElevatedButton.icon(
+                                          onPressed: () => _navigateToTransaksiForm(jenisKuponId: 1, jenisBbmId: 1),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Ranjen - Pertamax'),
+                                          style: ElevatedButton.styleFrom(
+                                            minimumSize: const Size(160, 40),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: () => _navigateToTransaksiForm(jenisKuponId: 2, jenisBbmId: 1),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Dukungan - Pertamax'),
+                                          style: ElevatedButton.styleFrom(
+                                            minimumSize: const Size(160, 40),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: () => _navigateToTransaksiForm(jenisKuponId: 1, jenisBbmId: 2),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Ranjen - Dex'),
+                                          style: ElevatedButton.styleFrom(
+                                            minimumSize: const Size(150, 40),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: () => _navigateToTransaksiForm(jenisKuponId: 2, jenisBbmId: 2),
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Dukungan - Dex'),
+                                          style: ElevatedButton.styleFrom(
+                                            minimumSize: const Size(150, 40),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                              _transaksiCurrentPage = 0; // Reset to first page
-                            });
-                          },
-                        ),
-                        if (_searchQuery.isNotEmpty)
-                          Consumer<TransaksiProvider>(
-                            builder: (context, provider, _) {
-                              final filteredCount = provider.transaksiList
-                                  .where(
-                                    (t) => t.nomorKupon.toLowerCase().contains(
-                                      _searchQuery.toLowerCase(),
-                                    ),
-                                  )
-                                  .length;
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  'Ditemukan $filteredCount data yang cocok',
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: _buildTransaksiTable(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Kupon Minus tab
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Data Kupon Minus',
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    color: filteredCount > 0
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontWeight: FontWeight.w500,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              );
-                            },
+                                ElevatedButton.icon(
+                                  onPressed: _exportKuponMinusToExcel,
+                                  icon: const Icon(Icons.download),
+                                  label: const Text('Export'),
+                                ),
+                              ],
+                            ),
                           ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: _buildTransaksiTable(context),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: _buildKuponMinusTable(context),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          // Kupon Minus Table Section
-          Expanded(
-            flex: 1,
-            child: Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Data Kupon Minus',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: _exportKuponMinusToExcel,
-                          icon: const Icon(Icons.download),
-                          label: const Text('Export'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: _buildKuponMinusTable(context),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -671,14 +671,32 @@ class ExportService {
   ) {
     final sheet = excel[sheetName];
 
-    final now = DateTime.now();
-    final currentMonth = now.month;
-    final currentYear = now.year;
+    // Determine period from kupon tanggal_mulai / tanggal_sampai if available
+    DateTime? minDate;
+    DateTime? maxDate;
+    for (final k in allKupons) {
+      try {
+        if (k.tanggalMulai.isNotEmpty) {
+          final d = DateTime.parse(k.tanggalMulai);
+          if (minDate == null || d.isBefore(minDate)) minDate = d;
+          if (maxDate == null || d.isAfter(maxDate)) maxDate = d;
+        }
+        if (k.tanggalSampai.isNotEmpty) {
+          final d2 = DateTime.parse(k.tanggalSampai);
+          if (minDate == null || d2.isBefore(minDate)) minDate = d2;
+          if (maxDate == null || d2.isAfter(maxDate)) maxDate = d2;
+        }
+      } catch (_) {
+        // ignore parse errors and continue
+      }
+    }
+
+    final periodLabel = (minDate != null && maxDate != null)
+      ? 'PERIODE ${minDate.day}/${minDate.month}/${minDate.year} - ${maxDate.day}/${maxDate.month}/${maxDate.year}'
+      : 'PERIODE ${DateTime.now().month}-${DateTime.now().year}';
 
     // BARIS 1: Header periode - merge dari A1 sampai kolom terakhir
-    sheet.cell(CellIndex.indexByString('A1')).value = TextCellValue(
-      'PERIODE $currentMonth-$currentYear',
-    );
+    sheet.cell(CellIndex.indexByString('A1')).value = TextCellValue(periodLabel);
     sheet.cell(CellIndex.indexByString('A1')).cellStyle = CellStyle(
       bold: true,
       fontSize: 14,

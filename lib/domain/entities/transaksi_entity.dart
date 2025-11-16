@@ -4,6 +4,7 @@ class TransaksiEntity {
   final String nomorKupon;
   final String namaSatker;
   final int jenisBbmId;
+  final int? jenisKuponId;
   final String tanggalTransaksi;
   final double jumlahLiter;
   final String createdAt;
@@ -22,6 +23,7 @@ class TransaksiEntity {
     required this.nomorKupon,
     required this.namaSatker,
     required this.jenisBbmId,
+    this.jenisKuponId,
     required this.tanggalTransaksi,
     required this.jumlahLiter,
     required this.createdAt,
