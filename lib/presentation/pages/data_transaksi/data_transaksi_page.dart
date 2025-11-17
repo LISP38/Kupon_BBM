@@ -736,9 +736,10 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
         verticalAlign: excel_lib.VerticalAlign.Center,
       );
 
-      // Define headers
+      // Define headers dengan kolom waktu lengkap
       var headers = [
         'Tanggal',
+        'Waktu',
         'Nomor Kupon',
         'Satker',
         'Jenis BBM',
@@ -755,12 +756,25 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
           ..cellStyle = headerStyle;
       }
 
-      // Write data rows
+      // Write data rows dengan timestamp lengkap
       var rowIndex = 1;
       final jenisKuponMap = {1: 'RANJEN', 2: 'DUKUNGAN'};
       for (final t in transaksi) {
+        // Parse created_at untuk ekstrak waktu lengkap
+        String tanggal = t.tanggalTransaksi;
+        String waktu = '00:00:00';
+        try {
+          final createdDateTime = DateTime.parse(t.createdAt);
+          tanggal = createdDateTime.toIso8601String().split('T')[0];
+          waktu = createdDateTime.toIso8601String().split('T')[1].split('.')[0];
+        } catch (e) {
+          // Fallback ke tanggal yang ada
+          print('DEBUG: Error parsing createdAt: $e');
+        }
+        
         var row = [
-          t.tanggalTransaksi,
+          tanggal,
+          waktu,
           t.nomorKupon,
           t.namaSatker,
           _jenisBBMMap[t.jenisBbmId] ?? 'Unknown',
@@ -776,8 +790,8 @@ class _DataTransaksiPageState extends State<DataTransaksiPage> {
             ),
           );
 
-          if (i == 5) {
-            // Numeric column for jumlah liter
+          if (i == 6) {
+            // Numeric column for jumlah liter (index berubah dari 5 ke 6 karena kolom waktu)
             cell
               ..value = excel_lib.DoubleCellValue(t.jumlahLiter)
               ..cellStyle = numberStyle;

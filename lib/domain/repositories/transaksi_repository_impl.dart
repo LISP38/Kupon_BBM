@@ -51,6 +51,10 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
           ORDER BY dd.date_value DESC
         ''');
         print('DEBUG getAllTransaksi: Star-schema query returned ${result.length} rows');
+        if (result.isNotEmpty) {
+          print('DEBUG: Sample row columns: ${result.first.keys.join(", ")}');
+          print('DEBUG: Sample row data: ${result.first}');
+        }
       } catch (e) {
         print('DEBUG getAllTransaksi: Star-schema query failed: $e, falling back to legacy tables');
         // Fallback to legacy tables if new star-schema tables are not available
@@ -75,6 +79,10 @@ class TransaksiRepositoryImpl implements TransaksiRepository {
           ORDER BY t.tanggal_transaksi DESC, t.created_at DESC
         ''');
         print('DEBUG getAllTransaksi: Fallback query returned ${result.length} rows');
+        if (result.isNotEmpty) {
+          print('DEBUG: Sample row columns: ${result.first.keys.join(", ")}');
+          print('DEBUG: Sample row data: ${result.first}');
+        }
       }
 
       return result.map((map) => TransaksiModel.fromMap(map)).toList();

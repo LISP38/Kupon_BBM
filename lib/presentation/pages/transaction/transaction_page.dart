@@ -631,9 +631,10 @@ class _TransactionPageState extends State<TransactionPage> {
       horizontalAlign: HorizontalAlign.Center,
     );
 
-    // Menambahkan header dengan style
+    // Menambahkan header dengan style dan kolom waktu
     var headers = [
       'Tanggal',
+      'Waktu',
       'Nomor Kupon',
       'No Pol',
       'Jenis BBM',
@@ -663,8 +664,19 @@ class _TransactionPageState extends State<TransactionPage> {
       verticalAlign: VerticalAlign.Center,
     );
 
-    // Adding data rows
+    // Adding data rows dengan timestamp lengkap
     for (final t in transaksi) {
+      // Parse created_at untuk ekstrak waktu lengkap
+      String tanggal = t.tanggalTransaksi;
+      String waktu = '00:00:00';
+      try {
+        final createdDateTime = DateTime.parse(t.createdAt);
+        tanggal = createdDateTime.toIso8601String().split('T')[0];
+        waktu = createdDateTime.toIso8601String().split('T')[1].split('.')[0];
+      } catch (e) {
+        print('DEBUG: Error parsing createdAt: $e');
+      }
+
       // Find corresponding kupon
       final matchingKupons = dashboardProvider.kuponList.where(
         (k) => k.kuponId == t.kuponId,
@@ -687,7 +699,8 @@ class _TransactionPageState extends State<TransactionPage> {
           : 'N/A';
 
       var row = [
-        TextCellValue(t.tanggalTransaksi),
+        TextCellValue(tanggal),
+        TextCellValue(waktu),
         TextCellValue(t.nomorKupon),
         TextCellValue(noPolWithKode),
         TextCellValue(_jenisBBMMap[t.jenisBbmId] ?? 'Unknown'),
