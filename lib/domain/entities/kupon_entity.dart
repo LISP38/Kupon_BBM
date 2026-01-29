@@ -36,4 +36,40 @@ class KuponEntity {
     this.updatedAt,
     this.isDeleted = 0,
   });
+
+  /// Determine actual kupon status based on date validity and quota
+  /// Returns: 'Kadaluarsa', 'Belum Aktif', 'Habis', 'Terpakai', or 'Tersedia'
+  String getActualStatus() {
+    final today = DateTime.now();
+
+    try {
+      final tanggalMulai = DateTime.parse(this.tanggalMulai);
+      final tanggalSampai = DateTime.parse(this.tanggalSampai);
+
+      // First check: date validity
+      if (today.isBefore(tanggalMulai)) {
+        return 'Belum Aktif';
+      }
+
+      // Check if today is after the end date (same day is still valid)
+      final tomorrowAfterEnd = tanggalSampai.add(Duration(days: 1));
+      if (today.isAfter(tomorrowAfterEnd)) {
+        return 'Kadaluarsa';
+      }
+
+      // If within valid date range, check quota status
+      if (kuotaSisa <= 0) {
+        return 'Habis';
+      }
+
+      if (kuotaSisa < kuotaAwal) {
+        return 'Terpakai';
+      }
+
+      return 'Tersedia';
+    } catch (e) {
+      // Fallback to status from database if date parsing fails
+      return status;
+    }
+  }
 }

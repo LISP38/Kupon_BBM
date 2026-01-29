@@ -209,6 +209,30 @@ class DashboardProvider extends ChangeNotifier {
     super.dispose();
   }
 
+  // --- Helper Methods ---
+
+  /// Update status kupon yang sudah expired menjadi "Tidak Aktif" di database
+  /// Dipanggil setiap kali fetch kupon untuk memastikan status selalu akurat
+  Future<void> _updateExpiredKuponStatus() async {
+    final db =
+        await (_kuponRepository as KuponRepositoryImpl).dbHelper.database;
+
+    try {
+      // Update semua kupon yang tanggal_sampainya sudah lewat
+      await db.update(
+        'dim_kupon',
+        {'status': 'Tidak Aktif'},
+        where:
+            'is_current = 1 AND date(tanggal_sampai) < date("now") AND status != ?',
+        whereArgs: ['Tidak Aktif'],
+      );
+
+      debugPrint('✅ Updated expired kupon status to "Tidak Aktif"');
+    } catch (e) {
+      debugPrint('❌ Error updating expired kupon status: $e');
+    }
+  }
+
   // --- Data Fetching Methods ---
 
   Future<void> fetchSatkers() async {
@@ -267,6 +291,9 @@ class DashboardProvider extends ChangeNotifier {
         WHERE dk.is_current = 1
         ORDER BY CAST(dk.nomor_kupon AS INTEGER) ASC
       ''';
+
+      // Update expired kupon status first
+      await _updateExpiredKuponStatus();
 
       final results = await db.rawQuery(query);
 
@@ -680,6 +707,9 @@ class DashboardProvider extends ChangeNotifier {
       query += ' ORDER BY CAST(dk.nomor_kupon AS INTEGER) ASC';
 
       debugPrint('🔍 _fetchKuponsByType SQL: $query | WhereArgs: $whereArgs');
+
+      // Update expired kupon status first
+      await _updateExpiredKuponStatus();
 
       final results = await db.rawQuery(query, whereArgs);
       final fetchedKupons = results
